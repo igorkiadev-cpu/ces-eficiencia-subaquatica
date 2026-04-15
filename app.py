@@ -11,28 +11,11 @@ st.set_page_config(layout="wide")
 col1, col2 = st.columns([1, 6])
 
 with col1:
-    import os
-
-logo_path = None
-
-# tenta possíveis nomes (resolve 100% dos casos)
-possiveis = [
-    "assets/belov.png",
-    "assets/belov.jpg",
-    "assets/belov.png.jpg",
-    "assets/Belov.png",
-    "assets/BELOV.png"
-]
-
-for p in possiveis:
-    if os.path.exists(p):
-        logo_path = p
-        break
-
-if logo_path:
-    st.image(logo_path, width=120)
-else:
-    st.warning("⚠️ Logo não encontrada na pasta assets")
+    logo_path = "assets/belov.png"
+    if os.path.exists(logo_path):
+        st.image(logo_path, width=120)
+    else:
+        st.warning("⚠️ Logo não encontrada")
 
 with col2:
     st.title("CES - Controle de Eficiência Subaquática")
@@ -50,7 +33,8 @@ def carregar_dados():
         return pd.DataFrame(columns=[
             "data","embarcacao","id_mergulho",
             "tempo_equipagem","tempo_mergulho","tempo_reposicionamento",
-            "abortado_mergulhador","abortado_embarcacao"
+            "abortado_mergulhador","abortado_embarcacao",
+            "observacoes"
         ])
 
 def salvar_dados(df):
@@ -85,14 +69,20 @@ if menu == "Registro de Mergulho":
             )
 
             numero_mergulho = st.selectbox(
-    "Número do Mergulho",
-    list(range(1, 21))
-)
+                "Número do Mergulho",
+                list(range(1, 21))
+            )
 
         with col2:
             tempo_equipagem = st.number_input("Tempo de Equipagem (min)", 0)
             tempo_mergulho = st.number_input("Tempo de Mergulho Efetivo (min)", 0)
             tempo_reposicionamento = st.number_input("Reposicionamento (min)", 0)
+
+            abortado_mergulhador = st.checkbox("Abortado pelo Mergulhador")
+            abortado_embarcacao = st.checkbox("Abortado pela Embarcação")
+
+        # Observações (fora das colunas)
+        observacoes = st.text_area("Observações do Superintendente")
 
         submitted = st.form_submit_button("Salvar")
 
@@ -104,8 +94,9 @@ if menu == "Registro de Mergulho":
                 "tempo_equipagem": tempo_equipagem,
                 "tempo_mergulho": tempo_mergulho,
                 "tempo_reposicionamento": tempo_reposicionamento,
-                "abortado_mergulhador": 0,
-                "abortado_embarcacao": 0
+                "abortado_mergulhador": abortado_mergulhador,
+                "abortado_embarcacao": abortado_embarcacao,
+                "observacoes": observacoes
             }])
 
             df = pd.concat([df, novo_dado], ignore_index=True)
@@ -206,9 +197,11 @@ if menu == "Dashboard Quinzenal":
                 st.plotly_chart(fig_bar, use_container_width=True)
 
             # =========================
-            # TENDÊNCIA (linha)
+            # TENDÊNCIA
             # =========================
             st.subheader("📈 Tendência de Eficiência")
+
+            df_filtrado = df_filtrado.copy()
 
             df_filtrado["total"] = (
                 df_filtrado["tempo_equipagem"] +
