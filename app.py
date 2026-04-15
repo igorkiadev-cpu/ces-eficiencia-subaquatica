@@ -100,7 +100,7 @@ if menu == "Registro de Mergulho":
             novo_dado = pd.DataFrame([{
                 "data": data,
                 "embarcacao": embarcacao,
-                "id_mergulho": numero_mergulhos,
+                "id_mergulho": numero_mergulho,
                 "tempo_equipagem": tempo_equipagem,
                 "tempo_mergulho": tempo_mergulho,
                 "tempo_reposicionamento": tempo_reposicionamento,
