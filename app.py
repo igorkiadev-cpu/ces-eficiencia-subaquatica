@@ -84,7 +84,10 @@ if menu == "Registro de Mergulho":
                 ["Amaralina", "Humaitá", "Cidade de Ouro Preto"]
             )
 
-            id_mergulho = st.text_input("ID do Mergulho")
+            numero_mergulho = st.selectbox(
+    "Número do Mergulho",
+    list(range(1, 21))
+)
 
         with col2:
             tempo_equipagem = st.number_input("Tempo de Equipagem (min)", 0)
@@ -97,7 +100,7 @@ if menu == "Registro de Mergulho":
             novo_dado = pd.DataFrame([{
                 "data": data,
                 "embarcacao": embarcacao,
-                "id_mergulho": id_mergulho,
+                "id_mergulho": numero_mergulhos,
                 "tempo_equipagem": tempo_equipagem,
                 "tempo_mergulho": tempo_mergulho,
                 "tempo_reposicionamento": tempo_reposicionamento,
