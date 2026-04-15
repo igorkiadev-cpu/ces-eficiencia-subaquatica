@@ -32,7 +32,7 @@ def salvar_dados(df):
 df = carregar_dados()
 
 # =========================
-# MENU SIMPLES
+# MENU
 # =========================
 menu = st.sidebar.selectbox(
     "Menu",
@@ -103,6 +103,23 @@ elif menu == "Dashboard Quinzenal":
         df.loc[df["abortado_mergulhador"] == 1, "score_operacional"] -= 30
         df.loc[df["abortado_embarcacao"] == 1, "score_operacional"] -= 20
 
+        # =========================
+        # CLASSIFICAÇÃO
+        # =========================
+        def classificar(score):
+            if score < 40:
+                return "Crítico"
+            elif score < 60:
+                return "Baixo"
+            elif score < 75:
+                return "Regular"
+            elif score < 90:
+                return "Bom"
+            else:
+                return "Excelente"
+
+        df["classificacao"] = df["score_operacional"].apply(classificar)
+
         # filtro quinzena
         df_q = df[df["data"].dt.day <= 15]
 
@@ -123,7 +140,7 @@ elif menu == "Dashboard Quinzenal":
         col4.metric("Eficiência Média", f"{eficiencia_media:.2%}")
 
         # =========================
-        # GRÁFICO 1
+        # GRÁFICO 1 - BARRA
         # =========================
         tempo_improdutivo_total = tempo_total_equipagem - tempo_total_mergulho
 
@@ -132,11 +149,10 @@ elif menu == "Dashboard Quinzenal":
             y=[tempo_total_mergulho, tempo_total_reposicionamento, tempo_improdutivo_total],
             title="Distribuição do Tempo Operacional"
         )
-
         st.plotly_chart(fig1, use_container_width=True)
 
         # =========================
-        # GRÁFICO 2
+        # GRÁFICO 2 - LINHA
         # =========================
         df_dia = df_q.groupby("data")["eficiencia"].mean().reset_index()
 
@@ -146,19 +162,53 @@ elif menu == "Dashboard Quinzenal":
             y="eficiencia",
             title="Eficiência ao Longo do Tempo"
         )
-
         st.plotly_chart(fig2, use_container_width=True)
 
         # =========================
-        # GRÁFICO 3
+        # GRÁFICO 3 - ABORTOS
         # =========================
         fig3 = px.bar(
             x=["Mergulhador", "Embarcação"],
             y=[df_q["abortado_mergulhador"].sum(), df_q["abortado_embarcacao"].sum()],
             title="Interrupções Operacionais"
         )
-
         st.plotly_chart(fig3, use_container_width=True)
+
+        # =========================
+        # GRÁFICO 4 - PIZZA
+        # =========================
+        fig4 = px.pie(
+            names=["Tempo Produtivo", "Reposicionamento", "Tempo Improdutivo"],
+            values=[
+                tempo_total_mergulho,
+                tempo_total_reposicionamento,
+                tempo_improdutivo_total
+            ],
+            title="Distribuição Percentual do Tempo Operacional"
+        )
+        st.plotly_chart(fig4, use_container_width=True)
+
+        # =========================
+        # GRÁFICO 5 - CLASSIFICAÇÃO
+        # =========================
+        fig5 = px.histogram(
+            df_q,
+            x="classificacao",
+            title="Distribuição da Eficiência Operacional"
+        )
+        st.plotly_chart(fig5, use_container_width=True)
+
+        # =========================
+        # LEGENDA
+        # =========================
+        st.markdown("### 📘 Critérios de Classificação")
+        st.markdown("""
+        - 🔴 Crítico: abaixo de 40  
+        - 🟠 Baixo: 40 a 60  
+        - 🟡 Regular: 60 a 75  
+        - 🔵 Bom: 75 a 90  
+        - 🟢 Excelente: acima de 90  
+        """)
 
         # =========================
         # TABELA FINAL
@@ -167,6 +217,6 @@ elif menu == "Dashboard Quinzenal":
 
         st.dataframe(
             df_q.sort_values(by="score_operacional", ascending=False)[
-                ["data","embarcacao","id_mergulho","score_operacional"]
+                ["data","embarcacao","id_mergulho","score_operacional","classificacao"]
             ]
         )
