@@ -9,7 +9,7 @@ st.set_page_config(layout="wide")
 # TÍTULO
 # =========================
 st.title("🌊 CES - Controle de Eficiência Subaquática")
-st.subheader("Plataforma de Análise de Operações de Mergulho")
+st.caption("Plataforma de Análise de Operações de Mergulho")
 
 DATA_PATH = "data/dives.csv"
 
@@ -32,130 +32,141 @@ def salvar_dados(df):
 df = carregar_dados()
 
 # =========================
-# ENTRADA DE DADOS
+# MENU SIMPLES
 # =========================
-st.header("📥 Registro de Operação de Mergulho")
-
-with st.form("formulario"):
-    col1, col2 = st.columns(2)
-
-    with col1:
-        data = st.date_input("Data da Operação")
-        embarcacao = st.text_input("Embarcação")
-        id_mergulho = st.text_input("ID do Mergulho")
-
-    with col2:
-        tempo_equipagem = st.number_input("Tempo de Equipagem (min)", 0)
-        tempo_mergulho = st.number_input("Tempo de Mergulho Efetivo (min)", 0)
-        tempo_reposicionamento = st.number_input("Tempo de Reposicionamento (min)", 0)
-
-        abortado_mergulhador = st.checkbox("Abortado pelo Mergulhador")
-        abortado_embarcacao = st.checkbox("Abortado pela Embarcação")
-
-    submit = st.form_submit_button("Salvar Registro")
-
-if submit:
-    nova_linha = pd.DataFrame([{
-        "data": data,
-        "embarcacao": embarcacao,
-        "id_mergulho": id_mergulho,
-        "tempo_equipagem": tempo_equipagem,
-        "tempo_mergulho": tempo_mergulho,
-        "tempo_reposicionamento": tempo_reposicionamento,
-        "abortado_mergulhador": int(abortado_mergulhador),
-        "abortado_embarcacao": int(abortado_embarcacao)
-    }])
-
-    df = pd.concat([df, nova_linha], ignore_index=True)
-    salvar_dados(df)
-    st.success("✅ Mergulho registrado com sucesso!")
+menu = st.sidebar.selectbox(
+    "Menu",
+    ["Registro de Mergulho", "Dashboard Quinzenal"]
+)
 
 # =========================
-# DASHBOARD
+# TELA 1 - INPUT
 # =========================
-st.header("📊 Painel Operacional Quinzenal")
+if menu == "Registro de Mergulho":
 
-if not df.empty:
+    st.header("📥 Registro de Operação")
 
-    df["data"] = pd.to_datetime(df["data"])
+    with st.form("formulario"):
+        col1, col2 = st.columns(2)
 
-    # =========================
-    # CÁLCULOS
-    # =========================
-    df["eficiencia"] = df["tempo_mergulho"] / df["tempo_equipagem"]
-    df["tempo_improdutivo"] = df["tempo_equipagem"] - df["tempo_mergulho"]
+        with col1:
+            data = st.date_input("Data")
+            embarcacao = st.text_input("Embarcação")
+            id_mergulho = st.text_input("ID do Mergulho")
 
-    df["score_operacional"] = df["eficiencia"] * 100
-    df.loc[df["abortado_mergulhador"] == 1, "score_operacional"] -= 30
-    df.loc[df["abortado_embarcacao"] == 1, "score_operacional"] -= 20
+        with col2:
+            tempo_equipagem = st.number_input("Tempo de Equipagem (min)", 0)
+            tempo_mergulho = st.number_input("Tempo de Mergulho Efetivo (min)", 0)
+            tempo_reposicionamento = st.number_input("Reposicionamento (min)", 0)
 
-    # filtro quinzena
-    df_q = df[df["data"].dt.day <= 15]
+            abortado_mergulhador = st.checkbox("Abortado pelo Mergulhador")
+            abortado_embarcacao = st.checkbox("Abortado pela Embarcação")
 
-    tempo_total_mergulho = df_q["tempo_mergulho"].sum()
-    tempo_total_equipagem = df_q["tempo_equipagem"].sum()
-    tempo_total_reposicionamento = df_q["tempo_reposicionamento"].sum()
+        submit = st.form_submit_button("Salvar")
 
-    eficiencia_media = (tempo_total_mergulho / tempo_total_equipagem) if tempo_total_equipagem > 0 else 0
+    if submit:
+        nova_linha = pd.DataFrame([{
+            "data": data,
+            "embarcacao": embarcacao,
+            "id_mergulho": id_mergulho,
+            "tempo_equipagem": tempo_equipagem,
+            "tempo_mergulho": tempo_mergulho,
+            "tempo_reposicionamento": tempo_reposicionamento,
+            "abortado_mergulhador": int(abortado_mergulhador),
+            "abortado_embarcacao": int(abortado_embarcacao)
+        }])
 
-    # =========================
-    # KPIs
-    # =========================
-    col1, col2, col3, col4 = st.columns(4)
+        df = pd.concat([df, nova_linha], ignore_index=True)
+        salvar_dados(df)
 
-    col1.metric("Total de Mergulhos", len(df_q))
-    col2.metric("Tempo Total de Mergulho (min)", tempo_total_mergulho)
-    col3.metric("Tempo de Reposicionamento (min)", tempo_total_reposicionamento)
-    col4.metric("Eficiência Operacional Média", f"{eficiencia_media:.2%}")
+        st.success("✅ Registro salvo com sucesso!")
 
-    # =========================
-    # GRÁFICO 1
-    # =========================
-    tempo_improdutivo_total = tempo_total_equipagem - tempo_total_mergulho
+# =========================
+# TELA 2 - DASHBOARD
+# =========================
+elif menu == "Dashboard Quinzenal":
 
-    fig1 = px.bar(
-        x=["Tempo Produtivo", "Reposicionamento", "Tempo Improdutivo"],
-        y=[tempo_total_mergulho, tempo_total_reposicionamento, tempo_improdutivo_total],
-        title="Distribuição do Tempo Operacional"
-    )
+    st.header("📊 Painel Operacional")
 
-    st.plotly_chart(fig1, use_container_width=True)
+    if df.empty:
+        st.warning("Nenhum dado disponível.")
+    else:
+        df["data"] = pd.to_datetime(df["data"])
 
-    # =========================
-    # GRÁFICO 2
-    # =========================
-    df_dia = df_q.groupby("data")["eficiencia"].mean().reset_index()
+        # =========================
+        # CÁLCULOS
+        # =========================
+        df["eficiencia"] = df["tempo_mergulho"] / df["tempo_equipagem"]
+        df["tempo_improdutivo"] = df["tempo_equipagem"] - df["tempo_mergulho"]
 
-    fig2 = px.line(
-        df_dia,
-        x="data",
-        y="eficiencia",
-        title="Eficiência Operacional ao Longo do Tempo"
-    )
+        df["score_operacional"] = df["eficiencia"] * 100
+        df.loc[df["abortado_mergulhador"] == 1, "score_operacional"] -= 30
+        df.loc[df["abortado_embarcacao"] == 1, "score_operacional"] -= 20
 
-    st.plotly_chart(fig2, use_container_width=True)
+        # filtro quinzena
+        df_q = df[df["data"].dt.day <= 15]
 
-    # =========================
-    # GRÁFICO 3
-    # =========================
-    fig3 = px.bar(
-        x=["Abortos pelo Mergulhador", "Abortos pela Embarcação"],
-        y=[df_q["abortado_mergulhador"].sum(), df_q["abortado_embarcacao"].sum()],
-        title="Análise de Interrupções Operacionais"
-    )
+        # =========================
+        # KPIs
+        # =========================
+        tempo_total_mergulho = df_q["tempo_mergulho"].sum()
+        tempo_total_equipagem = df_q["tempo_equipagem"].sum()
+        tempo_total_reposicionamento = df_q["tempo_reposicionamento"].sum()
 
-    st.plotly_chart(fig3, use_container_width=True)
+        eficiencia_media = (tempo_total_mergulho / tempo_total_equipagem) if tempo_total_equipagem > 0 else 0
 
-    # =========================
-    # ANÁLISE DOS MERGULHOS
-    # =========================
-    st.subheader("📈 Análise de Desempenho Operacional por Mergulho")
+        col1, col2, col3, col4 = st.columns(4)
 
-    st.dataframe(
-        df_q.sort_values(by="score_operacional", ascending=False)[
-            ["data","embarcacao","id_mergulho","score_operacional"]
-        ]
-    )
+        col1.metric("Total de Mergulhos", len(df_q))
+        col2.metric("Tempo de Mergulho (min)", tempo_total_mergulho)
+        col3.metric("Reposicionamento (min)", tempo_total_reposicionamento)
+        col4.metric("Eficiência Média", f"{eficiencia_media:.2%}")
 
-else:
-    st.info("Nenhum dado registrado até o momento.")
+        # =========================
+        # GRÁFICO 1
+        # =========================
+        tempo_improdutivo_total = tempo_total_equipagem - tempo_total_mergulho
+
+        fig1 = px.bar(
+            x=["Tempo Produtivo", "Reposicionamento", "Tempo Improdutivo"],
+            y=[tempo_total_mergulho, tempo_total_reposicionamento, tempo_improdutivo_total],
+            title="Distribuição do Tempo Operacional"
+        )
+
+        st.plotly_chart(fig1, use_container_width=True)
+
+        # =========================
+        # GRÁFICO 2
+        # =========================
+        df_dia = df_q.groupby("data")["eficiencia"].mean().reset_index()
+
+        fig2 = px.line(
+            df_dia,
+            x="data",
+            y="eficiencia",
+            title="Eficiência ao Longo do Tempo"
+        )
+
+        st.plotly_chart(fig2, use_container_width=True)
+
+        # =========================
+        # GRÁFICO 3
+        # =========================
+        fig3 = px.bar(
+            x=["Mergulhador", "Embarcação"],
+            y=[df_q["abortado_mergulhador"].sum(), df_q["abortado_embarcacao"].sum()],
+            title="Interrupções Operacionais"
+        )
+
+        st.plotly_chart(fig3, use_container_width=True)
+
+        # =========================
+        # TABELA FINAL
+        # =========================
+        st.subheader("📈 Análise por Mergulho")
+
+        st.dataframe(
+            df_q.sort_values(by="score_operacional", ascending=False)[
+                ["data","embarcacao","id_mergulho","score_operacional"]
+            ]
+        )
