@@ -11,7 +11,28 @@ st.set_page_config(layout="wide")
 col1, col2 = st.columns([1, 6])
 
 with col1:
-    st.image("assets/belov.png", width=120)
+    import os
+
+logo_path = None
+
+# tenta possíveis nomes (resolve 100% dos casos)
+possiveis = [
+    "assets/belov.png",
+    "assets/belov.jpg",
+    "assets/belov.png.jpg",
+    "assets/Belov.png",
+    "assets/BELOV.png"
+]
+
+for p in possiveis:
+    if os.path.exists(p):
+        logo_path = p
+        break
+
+if logo_path:
+    st.image(logo_path, width=120)
+else:
+    st.warning("⚠️ Logo não encontrada na pasta assets")
 
 with col2:
     st.title("CES - Controle de Eficiência Subaquática")
