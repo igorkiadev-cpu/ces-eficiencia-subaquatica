@@ -85,11 +85,31 @@ menu = st.sidebar.selectbox(
 )
 
 # =========================
-# 📥 REGISTRO
+# 📥 REGISTRO (UX MELHORADA)
 # =========================
 if menu == "Registro":
 
     st.header("Registro de Mergulho")
+
+    # 🔥 FORA DO FORM (ATUALIZA INSTANTÂNEO)
+    tipo_operacao = st.selectbox(
+        "Status",
+        ["Produtivo", "Abortado pelo Mergulhador", "Abortado pela Embarcação"]
+    )
+
+    motivo_abortado = None
+
+    if tipo_operacao == "Abortado pelo Mergulhador":
+        motivo_abortado = st.selectbox(
+            "Motivo (Mergulhador)",
+            ["Correnteza", "Swell (Refluxo)"]
+        )
+
+    elif tipo_operacao == "Abortado pela Embarcação":
+        motivo_abortado = st.selectbox(
+            "Motivo (Embarcação)",
+            ["Swell Alto", "Posição Conflitante", "Vento"]
+        )
 
     with st.form("form"):
         col1, col2 = st.columns(2)
@@ -106,25 +126,6 @@ if menu == "Registro":
             tempo_equipagem = st.number_input("Equipagem (min)", 0)
             tempo_mergulho = st.number_input("Mergulho (min)", 0)
             tempo_repo = st.number_input("Reposicionamento (min)", 0)
-
-            tipo_operacao = st.selectbox(
-                "Status",
-                ["Produtivo", "Abortado pelo Mergulhador", "Abortado pela Embarcação"]
-            )
-
-            motivo_abortado = None
-
-            if tipo_operacao == "Abortado pelo Mergulhador":
-                motivo_abortado = st.selectbox(
-                    "Motivo (Mergulhador)",
-                    ["Correnteza", "Swell (Refluxo)"]
-                )
-
-            elif tipo_operacao == "Abortado pela Embarcação":
-                motivo_abortado = st.selectbox(
-                    "Motivo (Embarcação)",
-                    ["Swell Alto", "Posição Conflitante", "Vento"]
-                )
 
         obs = st.text_area("Observações")
 
@@ -173,7 +174,10 @@ if menu == "Dashboard Executivo":
 
         df_abortos = df[df["status"] != "Produtivo"]
 
-        total_mergulhos = len(df)
+        # 🔥 CONTAGEM CORRETA
+        df_unico = df.drop_duplicates(subset=["data", "id_mergulho"])
+        total_mergulhos = len(df_unico)
+
         total_equip = df["tempo_equipagem"].sum()
         total_merg = df["tempo_mergulho"].sum()
         total_repo = df["tempo_reposicionamento"].sum()
@@ -194,18 +198,22 @@ if menu == "Dashboard Executivo":
         k3.metric("Abortos %", f"{taxa_abortos:.1f}")
         k4.metric("💰 Custo Perdido", f"${custo_perdido:,.0f}")
 
-        # 🍕 PIZZA STATUS
+        # 🍕 STATUS (BONITA)
         resumo = df["status"].value_counts().reset_index()
         resumo.columns = ["status", "qtd"]
-        fig1 = px.pie(resumo, names="status", values="qtd", hole=0.5)
-        fig1.update_layout(title="Status Operacional")
 
-        # 🍕 PIZZA MOTIVOS
+        fig1 = px.pie(resumo, names="status", values="qtd", hole=0.55)
+        fig1.update_traces(textinfo='label')
+        fig1.update_layout(title="Status Operacional", height=400)
+
+        # 🍕 MOTIVOS (BONITA)
         if not df_abortos.empty and df_abortos["motivo_abortado"].notna().any():
             causas = df_abortos["motivo_abortado"].value_counts().reset_index()
             causas.columns = ["motivo", "qtd"]
-            fig_motivo = px.pie(causas, names="motivo", values="qtd", hole=0.5)
-            fig_motivo.update_layout(title="Causas de Abortos")
+
+            fig_motivo = px.pie(causas, names="motivo", values="qtd", hole=0.55)
+            fig_motivo.update_traces(textinfo='label')
+            fig_motivo.update_layout(title="Causas de Abortos", height=400)
         else:
             fig_motivo = None
 
