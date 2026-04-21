@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import sqlite3
-import os
 
 from reportlab.platypus import SimpleDocTemplate, Paragraph
 from reportlab.lib.styles import getSampleStyleSheet
@@ -31,6 +30,7 @@ def inicializar_banco():
         tempo_reposicionamento REAL,
         abortado_mergulhador BOOLEAN,
         abortado_embarcacao BOOLEAN,
+        motivo_abortado TEXT,
         observacoes TEXT
     )
     """)
@@ -112,6 +112,20 @@ if menu == "Registro":
                 ["Produtivo", "Abortado pelo Mergulhador", "Abortado pela Embarcação"]
             )
 
+            motivo_abortado = None
+
+            if tipo_operacao == "Abortado pelo Mergulhador":
+                motivo_abortado = st.selectbox(
+                    "Motivo (Mergulhador)",
+                    ["Correnteza", "Swell (Refluxo)"]
+                )
+
+            elif tipo_operacao == "Abortado pela Embarcação":
+                motivo_abortado = st.selectbox(
+                    "Motivo (Embarcação)",
+                    ["Swell Alto", "Posição Conflitante", "Vento"]
+                )
+
         obs = st.text_area("Observações")
 
         if st.form_submit_button("Salvar"):
@@ -125,6 +139,7 @@ if menu == "Registro":
                 "tempo_reposicionamento": tempo_repo,
                 "abortado_mergulhador": tipo_operacao == "Abortado pelo Mergulhador",
                 "abortado_embarcacao": tipo_operacao == "Abortado pela Embarcação",
+                "motivo_abortado": motivo_abortado,
                 "observacoes": obs
             }])
 
@@ -156,6 +171,8 @@ if menu == "Dashboard Executivo":
             else "Produtivo", axis=1
         )
 
+        df_abortos = df[df["status"] != "Produtivo"]
+
         total_mergulhos = len(df)
         total_equip = df["tempo_equipagem"].sum()
         total_merg = df["tempo_mergulho"].sum()
@@ -165,38 +182,50 @@ if menu == "Dashboard Executivo":
 
         eficiencia = (total_merg / total * 100) if total > 0 else 0
 
-        abortos = df[df["status"] != "Produtivo"].shape[0]
+        abortos = df_abortos.shape[0]
         taxa_abortos = (abortos / total_mergulhos * 100) if total_mergulhos else 0
 
-        # 💰 CUSTO
         custo_min = custo_dia / 1440 if custo_dia > 0 else 0
         custo_perdido = (total_equip + total_repo) * custo_min
 
         k1, k2, k3, k4 = st.columns(4)
-
         k1.metric("Mergulhos", total_mergulhos)
         k2.metric("Eficiência %", f"{eficiencia:.1f}")
         k3.metric("Abortos %", f"{taxa_abortos:.1f}")
         k4.metric("💰 Custo Perdido", f"${custo_perdido:,.0f}")
 
-        # 🍕 PIZZA
+        # 🍕 PIZZA STATUS
         resumo = df["status"].value_counts().reset_index()
         resumo.columns = ["status", "qtd"]
-
         fig1 = px.pie(resumo, names="status", values="qtd", hole=0.5)
+        fig1.update_layout(title="Status Operacional")
 
-        # 📈 LINHA
+        # 🍕 PIZZA MOTIVOS
+        if not df_abortos.empty and df_abortos["motivo_abortado"].notna().any():
+            causas = df_abortos["motivo_abortado"].value_counts().reset_index()
+            causas.columns = ["motivo", "qtd"]
+            fig_motivo = px.pie(causas, names="motivo", values="qtd", hole=0.5)
+            fig_motivo.update_layout(title="Causas de Abortos")
+        else:
+            fig_motivo = None
+
+        # 📈 TENDÊNCIA
         trend = df.groupby("data")["tempo_mergulho"].sum().reset_index()
-        fig2 = px.line(trend, x="data", y="tempo_mergulho")
+        fig2 = px.line(trend, x="data", y="tempo_mergulho", title="Tendência de Produção")
 
-        # 🏆 BAR
+        # 🏆 PRODUÇÃO
         bar = df.groupby("embarcacao")["tempo_mergulho"].sum().reset_index()
-        fig3 = px.bar(bar, x="embarcacao", y="tempo_mergulho")
+        fig3 = px.bar(bar, x="embarcacao", y="tempo_mergulho", title="Produção por Embarcação")
 
         col1, col2 = st.columns(2)
         col1.plotly_chart(fig1, use_container_width=True)
-        col2.plotly_chart(fig2, use_container_width=True)
 
+        if fig_motivo:
+            col2.plotly_chart(fig_motivo, use_container_width=True)
+        else:
+            col2.info("Sem dados de causas ainda")
+
+        st.plotly_chart(fig2, use_container_width=True)
         st.plotly_chart(fig3, use_container_width=True)
 
         st.subheader("Insights")
@@ -206,6 +235,10 @@ if menu == "Dashboard Executivo":
 
         if taxa_abortos > 20:
             st.warning("Alta taxa de abortos")
+
+        if not df_abortos.empty:
+            top_causa = df_abortos["motivo_abortado"].value_counts().idxmax()
+            st.info(f"Principal causa de abortos: {top_causa}")
 
         st.subheader("Observações")
         st.dataframe(df[["data", "observacoes"]].dropna().tail(5))
