@@ -20,7 +20,6 @@ def inicializar_banco():
     conn = get_connection()
     cursor = conn.cursor()
 
-    # 🔥 cria tabela base
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS operacoes (
         data TEXT,
@@ -35,12 +34,6 @@ def inicializar_banco():
         observacoes TEXT
     )
     """)
-
-    # 🔥 garante coluna nova (caso banco antigo)
-    try:
-        cursor.execute("ALTER TABLE operacoes ADD COLUMN motivo_abortado TEXT")
-    except:
-        pass
 
     conn.commit()
     conn.close()
@@ -86,10 +79,7 @@ st.caption("Operational Efficiency System")
 # =========================
 # MENU
 # =========================
-menu = st.sidebar.selectbox(
-    "Menu",
-    ["Registro", "Dashboard Executivo"]
-)
+menu = st.sidebar.selectbox("Menu", ["Registro", "Dashboard Executivo"])
 
 # =========================
 # 📥 REGISTRO
@@ -98,7 +88,6 @@ if menu == "Registro":
 
     st.header("Registro de Mergulho")
 
-    # 🔥 fora do form (instantâneo)
     tipo_operacao = st.selectbox(
         "Status",
         ["Produtivo", "Abortado pelo Mergulhador", "Abortado pela Embarcação"]
@@ -107,26 +96,17 @@ if menu == "Registro":
     motivo_abortado = None
 
     if tipo_operacao == "Abortado pelo Mergulhador":
-        motivo_abortado = st.selectbox(
-            "Motivo (Mergulhador)",
-            ["Correnteza", "Swell (Refluxo)"]
-        )
+        motivo_abortado = st.selectbox("Motivo (Mergulhador)", ["Correnteza", "Swell (Refluxo)"])
 
     elif tipo_operacao == "Abortado pela Embarcação":
-        motivo_abortado = st.selectbox(
-            "Motivo (Embarcação)",
-            ["Swell Alto", "Posição Conflitante", "Vento"]
-        )
+        motivo_abortado = st.selectbox("Motivo (Embarcação)", ["Swell Alto", "Posição Conflitante", "Vento"])
 
     with st.form("form"):
         col1, col2 = st.columns(2)
 
         with col1:
             data = st.date_input("Data")
-            embarcacao = st.selectbox(
-                "Embarcação",
-                ["Amaralina", "Humaitá", "Cidade de Ouro Preto"]
-            )
+            embarcacao = st.selectbox("Embarcação", ["Amaralina", "Humaitá", "Cidade de Ouro Preto"])
             numero_mergulho = st.selectbox("Número do Mergulho", list(range(0, 11)))
 
         with col2:
@@ -171,8 +151,17 @@ if menu == "Dashboard Executivo":
         dias = st.slider("Período (dias)", 7, 30, 15)
         custo_dia = st.number_input("Custo diário operação ($)", 0)
 
-        df = df[df["data"] >= (pd.Timestamp.today() - pd.Timedelta(days=dias))]
+        # 🔥 FILTRO CORRETO (QUINZENA REAL)
+        hoje = pd.Timestamp.today().normalize()
+        inicio = hoje - pd.Timedelta(days=dias - 1)
 
+        df = df[(df["data"] >= inicio) & (df["data"] <= hoje)]
+
+        if df.empty:
+            st.warning("Sem dados nesse período.")
+            st.stop()
+
+        # STATUS
         df["status"] = df.apply(
             lambda r: "Abortado pelo Mergulhador" if r["abortado_mergulhador"]
             else "Abortado pela Embarcação" if r["abortado_embarcacao"]
@@ -181,9 +170,9 @@ if menu == "Dashboard Executivo":
 
         df_abortos = df[df["status"] != "Produtivo"]
 
-        # 🔥 contagem correta
+        # 🔥 CONTAGEM CERTA
         df_unico = df.drop_duplicates(subset=["data", "id_mergulho"])
-        total_mergulhos = len(df_unico)
+        total_mergulhos = df_unico.shape[0]
 
         total_equip = df["tempo_equipagem"].sum()
         total_merg = df["tempo_mergulho"].sum()
@@ -208,28 +197,28 @@ if menu == "Dashboard Executivo":
         resumo = df["status"].value_counts().reset_index()
         resumo.columns = ["status", "qtd"]
 
-        fig1 = px.pie(resumo, names="status", values="qtd", hole=0.55)
-        fig1.update_traces(textinfo='label')
-        fig1.update_layout(title="Status Operacional", height=400)
+        fig1 = px.pie(resumo, names="status", values="qtd", hole=0.6)
+        fig1.update_traces(textinfo='percent+label')
+        fig1.update_layout(height=450)
 
         # 🍕 MOTIVOS
+        col1, col2 = st.columns(2)
+
+        col1.plotly_chart(fig1, use_container_width=True)
+
         if not df_abortos.empty and df_abortos["motivo_abortado"].notna().any():
+
             causas = df_abortos["motivo_abortado"].value_counts().reset_index()
             causas.columns = ["motivo", "qtd"]
 
-            fig_motivo = px.pie(causas, names="motivo", values="qtd", hole=0.55)
-            fig_motivo.update_traces(textinfo='label')
-            fig_motivo.update_layout(title="Causas de Abortos", height=400)
-        else:
-            fig_motivo = None
+            fig2 = px.pie(causas, names="motivo", values="qtd", hole=0.6)
+            fig2.update_traces(textinfo='percent+label')
+            fig2.update_layout(height=450)
 
-        col1, col2 = st.columns(2)
-        col1.plotly_chart(fig1, use_container_width=True)
+            col2.plotly_chart(fig2, use_container_width=True)
 
-        if fig_motivo:
-            col2.plotly_chart(fig_motivo, use_container_width=True)
         else:
-            col2.info("Sem dados de causas ainda")
+            col2.info("Sem dados de causas")
 
         # 📈 tendência
         trend = df.groupby("data")["tempo_mergulho"].sum().reset_index()
@@ -239,19 +228,9 @@ if menu == "Dashboard Executivo":
         bar = df.groupby("embarcacao")["tempo_mergulho"].sum().reset_index()
         st.plotly_chart(px.bar(bar, x="embarcacao", y="tempo_mergulho"), use_container_width=True)
 
-        # 📥 EXPORT CSV (🔥 IMPORTANTE)
-        st.subheader("Exportação de Dados")
+        # 📥 EXPORT
         csv = df.to_csv(index=False).encode('utf-8')
-
-        st.download_button(
-            "📥 Baixar base da quinzena",
-            csv,
-            "dados_ces.csv",
-            "text/csv"
-        )
-
-        st.subheader("Observações")
-        st.dataframe(df[["data", "observacoes"]].dropna().tail(5))
+        st.download_button("📥 Baixar base", csv, "dados_ces.csv")
 
         # 📄 PDF
         def gerar_pdf(df):
@@ -267,5 +246,4 @@ if menu == "Dashboard Executivo":
                 return f.read()
 
         pdf = gerar_pdf(df)
-
-        st.download_button("Baixar PDF", pdf, file_name="relatorio.pdf")
+        st.download_button("Baixar PDF", pdf)
