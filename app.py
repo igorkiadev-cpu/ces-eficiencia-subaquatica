@@ -3,9 +3,6 @@ import pandas as pd
 import plotly.express as px
 import sqlite3
 
-from reportlab.platypus import SimpleDocTemplate, Paragraph
-from reportlab.lib.styles import getSampleStyleSheet
-
 st.set_page_config(layout="wide")
 
 # =========================
@@ -110,7 +107,7 @@ if menu == "Registro":
                 "Embarcação",
                 ["Amaralina", "Humaitá", "Cidade de Ouro Preto"]
             )
-            numero = st.selectbox("Número do Mergulho", list(range(0, 11)))
+            numero = st.selectbox("Número do Mergulho", list(range(0, 21)))  # 🔥 0 a 20
 
         with col2:
             equip = st.number_input("Equipagem", 0)
@@ -152,26 +149,27 @@ if menu == "Dashboard Executivo":
         df["data"] = pd.to_datetime(df["data"])
 
         dias = st.slider("Período", 7, 30, 15)
-        df = df[df["data"] >= (pd.Timestamp.today() - pd.Timedelta(days=dias))]
 
-        df["status"] = df.apply(
+        # 🔥 NÃO sobrescreve df original
+        df_filtrado = df[df["data"] >= (pd.Timestamp.today() - pd.Timedelta(days=dias))]
+
+        df_filtrado["status"] = df_filtrado.apply(
             lambda r: "Abortado Mergulhador" if r["abortado_mergulhador"]
             else "Abortado Embarcação" if r["abortado_embarcacao"]
             else "Produtivo", axis=1
         )
 
-        # 🔥 TOTAL CORRETO
-        df_unico = df.drop_duplicates(subset=["data", "id_mergulho"])
-        total_mergulhos = len(df_unico)
+        # 🔥 TOTAL CORRETO FINAL
+        total_mergulhos = df_filtrado.groupby(["data", "id_mergulho"]).ngroups
 
-        total_equip = df["tempo_equipagem"].sum()
-        total_merg = df["tempo_mergulho"].sum()
-        total_repo = df["tempo_reposicionamento"].sum()
+        total_equip = df_filtrado["tempo_equipagem"].sum()
+        total_merg = df_filtrado["tempo_mergulho"].sum()
+        total_repo = df_filtrado["tempo_reposicionamento"].sum()
 
         total = total_equip + total_merg + total_repo
         eficiencia = (total_merg / total * 100) if total > 0 else 0
 
-        # 🔥 PERFORMANCE
+        # PERFORMANCE
         if eficiencia < 40:
             perf = "🔴 Ruim"
         elif eficiencia < 60:
@@ -187,31 +185,34 @@ if menu == "Dashboard Executivo":
         k3.metric("Tempo Produtivo", f"{total_merg:.0f} min")
         k4.metric("Performance", perf)
 
-        # 🍕 PIZZA GRANDE
-        resumo = df["status"].value_counts().reset_index()
+        # 🍕 PIZZA
+        resumo = df_filtrado["status"].value_counts().reset_index()
         resumo.columns = ["status", "qtd"]
 
-        fig1 = px.pie(
-            resumo,
-            names="status",
-            values="qtd",
-            hole=0.6
-        )
-
+        fig1 = px.pie(resumo, names="status", values="qtd", hole=0.6)
         fig1.update_traces(textinfo='percent+label')
-        fig1.update_layout(
-            height=500,
-            title="Distribuição Operacional"
-        )
+        fig1.update_layout(height=500)
 
         st.plotly_chart(fig1, use_container_width=True)
 
         # 📈 tendência
-        trend = df.groupby("data")["tempo_mergulho"].sum().reset_index()
+        trend = df_filtrado.groupby("data")["tempo_mergulho"].sum().reset_index()
         st.plotly_chart(px.line(trend, x="data", y="tempo_mergulho"),
                         use_container_width=True)
 
         # 🏆 produção
-        bar = df.groupby("embarcacao")["tempo_mergulho"].sum().reset_index()
+        bar = df_filtrado.groupby("embarcacao")["tempo_mergulho"].sum().reset_index()
         st.plotly_chart(px.bar(bar, x="embarcacao", y="tempo_mergulho"),
                         use_container_width=True)
+
+        # 📥 DOWNLOAD (VOLTOU 🔥)
+        st.subheader("Exportação de Dados")
+
+        csv = df_filtrado.to_csv(index=False).encode('utf-8')
+
+        st.download_button(
+            "📥 Baixar Log da Quinzena",
+            data=csv,
+            file_name="ces_quinzena.csv",
+            mime="text/csv"
+        )
