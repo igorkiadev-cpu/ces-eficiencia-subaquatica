@@ -107,7 +107,7 @@ if menu == "Registro":
                 "Embarcação",
                 ["Amaralina", "Humaitá", "Cidade de Ouro Preto"]
             )
-            numero = st.selectbox("Número do Mergulho", list(range(0, 21)))  # 🔥 0 a 20
+            numero = st.selectbox("Número do Mergulho", list(range(0, 21)))
 
         with col2:
             equip = st.number_input("Equipagem", 0)
@@ -148,26 +148,28 @@ if menu == "Dashboard Executivo":
     else:
         df["data"] = pd.to_datetime(df["data"])
 
-        dias = st.slider("Período", 7, 30, 15)
+        dias = st.slider("Período (dias)", 7, 30, 15)
 
-        # 🔥 NÃO sobrescreve df original
-        df_filtrado = df[df["data"] >= (pd.Timestamp.today() - pd.Timedelta(days=dias))]
+        # 🔥 filtro correto
+        df_filtrado = df[df["data"] >= (pd.Timestamp.today() - pd.Timedelta(days=dias))].copy()
 
+        # 🔥 status
         df_filtrado["status"] = df_filtrado.apply(
             lambda r: "Abortado Mergulhador" if r["abortado_mergulhador"]
             else "Abortado Embarcação" if r["abortado_embarcacao"]
-            else "Produtivo", axis=1
+            else "Produtivo",
+            axis=1
         )
 
-        # 🔥 TOTAL CORRETO FINAL
-        df_filtrado = df_filtrado.copy()
-        df_filtrado["chave_mergulho"] = (
-    df_filtrado["data"].dt.strftime("%Y-%m-%d") + "_" +
-    df_filtrado["id_mergulho"].astype(str)
-)
+        # 🔥 CHAVE ÚNICA (FIX DEFINITIVO)
+        df_filtrado["chave"] = (
+            df_filtrado["data"].dt.strftime("%Y-%m-%d") + "_" +
+            df_filtrado["id_mergulho"].astype(str)
+        )
 
-total_mergulhos = df_filtrado["chave_mergulho"].nunique() 
+        total_mergulhos = df_filtrado["chave"].nunique()
 
+        # 🔥 tempos
         total_equip = df_filtrado["tempo_equipagem"].sum()
         total_merg = df_filtrado["tempo_mergulho"].sum()
         total_repo = df_filtrado["tempo_reposicionamento"].sum()
@@ -175,7 +177,7 @@ total_mergulhos = df_filtrado["chave_mergulho"].nunique()
         total = total_equip + total_merg + total_repo
         eficiencia = (total_merg / total * 100) if total > 0 else 0
 
-        # PERFORMANCE
+        # 🔥 PERFORMANCE
         if eficiencia < 40:
             perf = "🔴 Ruim"
         elif eficiencia < 60:
@@ -191,15 +193,28 @@ total_mergulhos = df_filtrado["chave_mergulho"].nunique()
         k3.metric("Tempo Produtivo", f"{total_merg:.0f} min")
         k4.metric("Performance", perf)
 
-        # 🍕 PIZZA
+        # 🍕 PIZZA GRANDE (FIX VISUAL)
         resumo = df_filtrado["status"].value_counts().reset_index()
         resumo.columns = ["status", "qtd"]
 
-        fig1 = px.pie(resumo, names="status", values="qtd", hole=0.6)
-        fig1.update_traces(textinfo='percent+label')
-        fig1.update_layout(height=500)
+        fig = px.pie(
+            resumo,
+            names="status",
+            values="qtd",
+            hole=0.6
+        )
 
-        st.plotly_chart(fig1, use_container_width=True)
+        fig.update_traces(
+            textposition='inside',
+            textinfo='percent+label'
+        )
+
+        fig.update_layout(
+            height=600,
+            margin=dict(t=40, b=40, l=40, r=40)
+        )
+
+        st.plotly_chart(fig, use_container_width=True)
 
         # 📈 tendência
         trend = df_filtrado.groupby("data")["tempo_mergulho"].sum().reset_index()
@@ -211,7 +226,7 @@ total_mergulhos = df_filtrado["chave_mergulho"].nunique()
         st.plotly_chart(px.bar(bar, x="embarcacao", y="tempo_mergulho"),
                         use_container_width=True)
 
-        # 📥 DOWNLOAD (VOLTOU 🔥)
+        # 📥 DOWNLOAD
         st.subheader("Exportação de Dados")
 
         csv = df_filtrado.to_csv(index=False).encode('utf-8')
