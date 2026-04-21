@@ -160,7 +160,13 @@ if menu == "Dashboard Executivo":
         )
 
         # 🔥 TOTAL CORRETO FINAL
-        total_mergulhos = df_filtrado.groupby(["data", "id_mergulho"]).ngroups
+        df_filtrado = df_filtrado.copy()
+        df_filtrado["chave_mergulho"] = (
+    df_filtrado["data"].dt.strftime("%Y-%m-%d") + "_" +
+    df_filtrado["id_mergulho"].astype(str)
+)
+
+total_mergulhos = df_filtrado["chave_mergulho"].nunique() 
 
         total_equip = df_filtrado["tempo_equipagem"].sum()
         total_merg = df_filtrado["tempo_mergulho"].sum()
