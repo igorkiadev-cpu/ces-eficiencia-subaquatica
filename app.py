@@ -9,7 +9,7 @@ from reportlab.lib.styles import getSampleStyleSheet
 st.set_page_config(layout="wide")
 
 # =========================
-# 🗄️ BANCO DE DADOS
+# 🗄️ BANCO
 # =========================
 DB_PATH = "ces.db"
 
@@ -38,23 +38,20 @@ def inicializar_banco():
     conn.commit()
     conn.close()
 
-def salvar_dados(novo_dado):
+def salvar_dados(novo):
     conn = get_connection()
 
     existente = pd.read_sql(
         "SELECT * FROM operacoes WHERE data=? AND id_mergulho=?",
         conn,
-        params=(
-            str(novo_dado["data"].iloc[0]),
-            int(novo_dado["id_mergulho"].iloc[0])
-        )
+        params=(novo["data"][0], int(novo["id_mergulho"][0]))
     )
 
     if not existente.empty:
         conn.close()
         return False
 
-    novo_dado.to_sql("operacoes", conn, if_exists="append", index=False)
+    novo.to_sql("operacoes", conn, if_exists="append", index=False)
     conn.close()
     return True
 
@@ -76,9 +73,6 @@ df = carregar_dados()
 st.title("CES - Controle de Eficiência Subaquática")
 st.caption("Operational Efficiency System")
 
-# =========================
-# MENU
-# =========================
 menu = st.sidebar.selectbox("Menu", ["Registro", "Dashboard Executivo"])
 
 # =========================
@@ -96,23 +90,32 @@ if menu == "Registro":
     motivo_abortado = None
 
     if tipo_operacao == "Abortado pelo Mergulhador":
-        motivo_abortado = st.selectbox("Motivo (Mergulhador)", ["Correnteza", "Swell (Refluxo)"])
+        motivo_abortado = st.selectbox(
+            "Motivo (Mergulhador)",
+            ["Correnteza", "Swell (Refluxo)"]
+        )
 
     elif tipo_operacao == "Abortado pela Embarcação":
-        motivo_abortado = st.selectbox("Motivo (Embarcação)", ["Swell Alto", "Posição Conflitante", "Vento"])
+        motivo_abortado = st.selectbox(
+            "Motivo (Embarcação)",
+            ["Swell Alto", "Posição Conflitante", "Vento"]
+        )
 
     with st.form("form"):
         col1, col2 = st.columns(2)
 
         with col1:
             data = st.date_input("Data")
-            embarcacao = st.selectbox("Embarcação", ["Amaralina", "Humaitá", "Cidade de Ouro Preto"])
-            numero_mergulho = st.selectbox("Número do Mergulho", list(range(0, 11)))
+            embarcacao = st.selectbox(
+                "Embarcação",
+                ["Amaralina", "Humaitá", "Cidade de Ouro Preto"]
+            )
+            numero = st.selectbox("Número do Mergulho", list(range(0, 11)))
 
         with col2:
-            tempo_equipagem = st.number_input("Equipagem (min)", 0)
-            tempo_mergulho = st.number_input("Mergulho (min)", 0)
-            tempo_repo = st.number_input("Reposicionamento (min)", 0)
+            equip = st.number_input("Equipagem", 0)
+            merg = st.number_input("Mergulho", 0)
+            repo = st.number_input("Reposicionamento", 0)
 
         obs = st.text_area("Observações")
 
@@ -121,10 +124,10 @@ if menu == "Registro":
             novo = pd.DataFrame([{
                 "data": str(data),
                 "embarcacao": embarcacao,
-                "id_mergulho": numero_mergulho,
-                "tempo_equipagem": tempo_equipagem,
-                "tempo_mergulho": tempo_mergulho,
-                "tempo_reposicionamento": tempo_repo,
+                "id_mergulho": numero,
+                "tempo_equipagem": equip,
+                "tempo_mergulho": merg,
+                "tempo_reposicionamento": repo,
                 "abortado_mergulhador": tipo_operacao == "Abortado pelo Mergulhador",
                 "abortado_embarcacao": tipo_operacao == "Abortado pela Embarcação",
                 "motivo_abortado": motivo_abortado,
@@ -132,9 +135,9 @@ if menu == "Registro":
             }])
 
             if salvar_dados(novo):
-                st.success("Registro salvo!")
+                st.success("Salvo!")
             else:
-                st.error("Já existe esse mergulho nessa data!")
+                st.error("Duplicado!")
 
 # =========================
 # 📊 DASHBOARD
@@ -144,35 +147,22 @@ if menu == "Dashboard Executivo":
     st.header("Dashboard Executivo")
 
     if df.empty:
-        st.warning("Sem dados.")
+        st.warning("Sem dados")
     else:
         df["data"] = pd.to_datetime(df["data"])
 
-        dias = st.slider("Período (dias)", 7, 30, 15)
-        custo_dia = st.number_input("Custo diário operação ($)", 0)
+        dias = st.slider("Período", 7, 30, 15)
+        df = df[df["data"] >= (pd.Timestamp.today() - pd.Timedelta(days=dias))]
 
-        # 🔥 FILTRO CORRETO (QUINZENA REAL)
-        hoje = pd.Timestamp.today().normalize()
-        inicio = hoje - pd.Timedelta(days=dias - 1)
-
-        df = df[(df["data"] >= inicio) & (df["data"] <= hoje)]
-
-        if df.empty:
-            st.warning("Sem dados nesse período.")
-            st.stop()
-
-        # STATUS
         df["status"] = df.apply(
-            lambda r: "Abortado pelo Mergulhador" if r["abortado_mergulhador"]
-            else "Abortado pela Embarcação" if r["abortado_embarcacao"]
+            lambda r: "Abortado Mergulhador" if r["abortado_mergulhador"]
+            else "Abortado Embarcação" if r["abortado_embarcacao"]
             else "Produtivo", axis=1
         )
 
-        df_abortos = df[df["status"] != "Produtivo"]
-
-        # 🔥 CONTAGEM CERTA
+        # 🔥 TOTAL CORRETO
         df_unico = df.drop_duplicates(subset=["data", "id_mergulho"])
-        total_mergulhos = df_unico.shape[0]
+        total_mergulhos = len(df_unico)
 
         total_equip = df["tempo_equipagem"].sum()
         total_merg = df["tempo_mergulho"].sum()
@@ -181,69 +171,47 @@ if menu == "Dashboard Executivo":
         total = total_equip + total_merg + total_repo
         eficiencia = (total_merg / total * 100) if total > 0 else 0
 
-        abortos = df_abortos.shape[0]
-        taxa_abortos = (abortos / total_mergulhos * 100) if total_mergulhos else 0
-
-        custo_min = custo_dia / 1440 if custo_dia > 0 else 0
-        custo_perdido = (total_equip + total_repo) * custo_min
+        # 🔥 PERFORMANCE
+        if eficiencia < 40:
+            perf = "🔴 Ruim"
+        elif eficiencia < 60:
+            perf = "🟡 Regular"
+        elif eficiencia < 80:
+            perf = "🟢 Bom"
+        else:
+            perf = "🔵 Excelente"
 
         k1, k2, k3, k4 = st.columns(4)
         k1.metric("Mergulhos", total_mergulhos)
-        k2.metric("Eficiência %", f"{eficiencia:.1f}")
-        k3.metric("Abortos %", f"{taxa_abortos:.1f}")
-        k4.metric("💰 Custo Perdido", f"${custo_perdido:,.0f}")
+        k2.metric("Eficiência", f"{eficiencia:.1f}%")
+        k3.metric("Tempo Produtivo", f"{total_merg:.0f} min")
+        k4.metric("Performance", perf)
 
-        # 🍕 STATUS
+        # 🍕 PIZZA GRANDE
         resumo = df["status"].value_counts().reset_index()
         resumo.columns = ["status", "qtd"]
 
-        fig1 = px.pie(resumo, names="status", values="qtd", hole=0.6)
+        fig1 = px.pie(
+            resumo,
+            names="status",
+            values="qtd",
+            hole=0.6
+        )
+
         fig1.update_traces(textinfo='percent+label')
-        fig1.update_layout(height=450)
+        fig1.update_layout(
+            height=500,
+            title="Distribuição Operacional"
+        )
 
-        # 🍕 MOTIVOS
-        col1, col2 = st.columns(2)
-
-        col1.plotly_chart(fig1, use_container_width=True)
-
-        if not df_abortos.empty and df_abortos["motivo_abortado"].notna().any():
-
-            causas = df_abortos["motivo_abortado"].value_counts().reset_index()
-            causas.columns = ["motivo", "qtd"]
-
-            fig2 = px.pie(causas, names="motivo", values="qtd", hole=0.6)
-            fig2.update_traces(textinfo='percent+label')
-            fig2.update_layout(height=450)
-
-            col2.plotly_chart(fig2, use_container_width=True)
-
-        else:
-            col2.info("Sem dados de causas")
+        st.plotly_chart(fig1, use_container_width=True)
 
         # 📈 tendência
         trend = df.groupby("data")["tempo_mergulho"].sum().reset_index()
-        st.plotly_chart(px.line(trend, x="data", y="tempo_mergulho"), use_container_width=True)
+        st.plotly_chart(px.line(trend, x="data", y="tempo_mergulho"),
+                        use_container_width=True)
 
         # 🏆 produção
         bar = df.groupby("embarcacao")["tempo_mergulho"].sum().reset_index()
-        st.plotly_chart(px.bar(bar, x="embarcacao", y="tempo_mergulho"), use_container_width=True)
-
-        # 📥 EXPORT
-        csv = df.to_csv(index=False).encode('utf-8')
-        st.download_button("📥 Baixar base", csv, "dados_ces.csv")
-
-        # 📄 PDF
-        def gerar_pdf(df):
-            doc = SimpleDocTemplate("relatorio.pdf")
-            styles = getSampleStyleSheet()
-            elems = [Paragraph("Relatório CES", styles["Title"])]
-
-            for _, r in df.tail(10).iterrows():
-                elems.append(Paragraph(f"{r['data']} - {r['embarcacao']}", styles["Normal"]))
-
-            doc.build(elems)
-            with open("relatorio.pdf", "rb") as f:
-                return f.read()
-
-        pdf = gerar_pdf(df)
-        st.download_button("Baixar PDF", pdf)
+        st.plotly_chart(px.bar(bar, x="embarcacao", y="tempo_mergulho"),
+                        use_container_width=True)
