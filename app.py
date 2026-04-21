@@ -20,6 +20,7 @@ def inicializar_banco():
     conn = get_connection()
     cursor = conn.cursor()
 
+    # 🔥 cria tabela base
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS operacoes (
         data TEXT,
@@ -34,6 +35,12 @@ def inicializar_banco():
         observacoes TEXT
     )
     """)
+
+    # 🔥 garante coluna nova (caso banco antigo)
+    try:
+        cursor.execute("ALTER TABLE operacoes ADD COLUMN motivo_abortado TEXT")
+    except:
+        pass
 
     conn.commit()
     conn.close()
@@ -85,13 +92,13 @@ menu = st.sidebar.selectbox(
 )
 
 # =========================
-# 📥 REGISTRO (UX MELHORADA)
+# 📥 REGISTRO
 # =========================
 if menu == "Registro":
 
     st.header("Registro de Mergulho")
 
-    # 🔥 FORA DO FORM (ATUALIZA INSTANTÂNEO)
+    # 🔥 fora do form (instantâneo)
     tipo_operacao = st.selectbox(
         "Status",
         ["Produtivo", "Abortado pelo Mergulhador", "Abortado pela Embarcação"]
@@ -132,7 +139,7 @@ if menu == "Registro":
         if st.form_submit_button("Salvar"):
 
             novo = pd.DataFrame([{
-                "data": data,
+                "data": str(data),
                 "embarcacao": embarcacao,
                 "id_mergulho": numero_mergulho,
                 "tempo_equipagem": tempo_equipagem,
@@ -174,7 +181,7 @@ if menu == "Dashboard Executivo":
 
         df_abortos = df[df["status"] != "Produtivo"]
 
-        # 🔥 CONTAGEM CORRETA
+        # 🔥 contagem correta
         df_unico = df.drop_duplicates(subset=["data", "id_mergulho"])
         total_mergulhos = len(df_unico)
 
@@ -183,7 +190,6 @@ if menu == "Dashboard Executivo":
         total_repo = df["tempo_reposicionamento"].sum()
 
         total = total_equip + total_merg + total_repo
-
         eficiencia = (total_merg / total * 100) if total > 0 else 0
 
         abortos = df_abortos.shape[0]
@@ -198,7 +204,7 @@ if menu == "Dashboard Executivo":
         k3.metric("Abortos %", f"{taxa_abortos:.1f}")
         k4.metric("💰 Custo Perdido", f"${custo_perdido:,.0f}")
 
-        # 🍕 STATUS (BONITA)
+        # 🍕 STATUS
         resumo = df["status"].value_counts().reset_index()
         resumo.columns = ["status", "qtd"]
 
@@ -206,7 +212,7 @@ if menu == "Dashboard Executivo":
         fig1.update_traces(textinfo='label')
         fig1.update_layout(title="Status Operacional", height=400)
 
-        # 🍕 MOTIVOS (BONITA)
+        # 🍕 MOTIVOS
         if not df_abortos.empty and df_abortos["motivo_abortado"].notna().any():
             causas = df_abortos["motivo_abortado"].value_counts().reset_index()
             causas.columns = ["motivo", "qtd"]
@@ -217,14 +223,6 @@ if menu == "Dashboard Executivo":
         else:
             fig_motivo = None
 
-        # 📈 TENDÊNCIA
-        trend = df.groupby("data")["tempo_mergulho"].sum().reset_index()
-        fig2 = px.line(trend, x="data", y="tempo_mergulho", title="Tendência de Produção")
-
-        # 🏆 PRODUÇÃO
-        bar = df.groupby("embarcacao")["tempo_mergulho"].sum().reset_index()
-        fig3 = px.bar(bar, x="embarcacao", y="tempo_mergulho", title="Produção por Embarcação")
-
         col1, col2 = st.columns(2)
         col1.plotly_chart(fig1, use_container_width=True)
 
@@ -233,20 +231,24 @@ if menu == "Dashboard Executivo":
         else:
             col2.info("Sem dados de causas ainda")
 
-        st.plotly_chart(fig2, use_container_width=True)
-        st.plotly_chart(fig3, use_container_width=True)
+        # 📈 tendência
+        trend = df.groupby("data")["tempo_mergulho"].sum().reset_index()
+        st.plotly_chart(px.line(trend, x="data", y="tempo_mergulho"), use_container_width=True)
 
-        st.subheader("Insights")
+        # 🏆 produção
+        bar = df.groupby("embarcacao")["tempo_mergulho"].sum().reset_index()
+        st.plotly_chart(px.bar(bar, x="embarcacao", y="tempo_mergulho"), use_container_width=True)
 
-        if eficiencia < 50:
-            st.error("Baixa eficiência")
+        # 📥 EXPORT CSV (🔥 IMPORTANTE)
+        st.subheader("Exportação de Dados")
+        csv = df.to_csv(index=False).encode('utf-8')
 
-        if taxa_abortos > 20:
-            st.warning("Alta taxa de abortos")
-
-        if not df_abortos.empty:
-            top_causa = df_abortos["motivo_abortado"].value_counts().idxmax()
-            st.info(f"Principal causa de abortos: {top_causa}")
+        st.download_button(
+            "📥 Baixar base da quinzena",
+            csv,
+            "dados_ces.csv",
+            "text/csv"
+        )
 
         st.subheader("Observações")
         st.dataframe(df[["data", "observacoes"]].dropna().tail(5))
@@ -266,8 +268,4 @@ if menu == "Dashboard Executivo":
 
         pdf = gerar_pdf(df)
 
-        st.download_button(
-            "Baixar PDF",
-            pdf,
-            file_name="relatorio.pdf"
-        )
+        st.download_button("Baixar PDF", pdf, file_name="relatorio.pdf")
