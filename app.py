@@ -36,7 +36,11 @@ def init_db():
         tempo_reposicionamento REAL,
         status TEXT,
         motivo_abortado TEXT,
-        observacoes TEXT
+        observacoes TEXT,
+        data_inicio_quinzena TEXT,
+        data_fim_quinzena TEXT,
+        quinzena_id TEXT,
+        quinzena_label TEXT
     )
     """)
     c.close()
@@ -63,11 +67,10 @@ def save(df_new):
     c.close()
 
 # =========================
-# PDF EM MEMÓRIA (FIX CLOUD)
+# PDF
 # =========================
 def gerar_pdf(texto):
     buffer = io.BytesIO()
-
     doc = SimpleDocTemplate(buffer)
     styles = getSampleStyleSheet()
     story = []
@@ -77,7 +80,6 @@ def gerar_pdf(texto):
         story.append(Spacer(1, 10))
 
     doc.build(story)
-
     buffer.seek(0)
     return buffer
 
@@ -98,8 +100,27 @@ if menu == "Operação":
 
     st.header("Registro Rápido")
 
+    # =========================
+    # QUINZENA
+    # =========================
+    st.subheader("📅 Quinzena")
+
+    c1, c2 = st.columns(2)
+    with c1:
+        data_inicio_q = st.date_input("Início da quinzena", value=date.today())
+    with c2:
+        data_fim_q = st.date_input("Fim da quinzena", value=date.today())
+
+    quinzena_id = f"{data_inicio_q.strftime('%Y%m%d')}_{data_fim_q.strftime('%Y%m%d')}"
+    quinzena_label = f"{data_inicio_q.strftime('%d/%m')} a {data_fim_q.strftime('%d/%m')}"
+
+    st.info(f"Quinzena ativa: {quinzena_label}")
+
+    # =========================
+    # RESTO
+    # =========================
     if st.session_state.salvo:
-        st.success(f"✅ Mergulho #{st.session_state.ultimo_numero} salvo com sucesso!")
+        st.success(f"✅ Mergulho #{st.session_state.ultimo_numero} salvo!")
         st.session_state.salvo = False
 
     d = st.date_input("Data", value=date.today())
@@ -133,8 +154,6 @@ if menu == "Operação":
             st.warning("Selecione o motivo")
             st.stop()
 
-        st.session_state.salvando = True
-
         new = pd.DataFrame([{
             "data": str(d),
             "embarcacao": embarcacao,
@@ -144,15 +163,17 @@ if menu == "Operação":
             "tempo_reposicionamento": repo,
             "status": status,
             "motivo_abortado": motivo,
-            "observacoes": obs
+            "observacoes": obs,
+            "data_inicio_quinzena": str(data_inicio_q),
+            "data_fim_quinzena": str(data_fim_q),
+            "quinzena_id": quinzena_id,
+            "quinzena_label": quinzena_label
         }])
 
         save(new)
 
         st.session_state.salvo = True
         st.session_state.ultimo_numero = numero
-        st.session_state.salvando = False
-
         st.rerun()
 
 # =========================
@@ -160,19 +181,32 @@ if menu == "Operação":
 # =========================
 elif menu == "Análise":
 
-    st.header("Dashboard da Quinzena")
+    st.header("Dashboard por Quinzena")
 
     if df.empty:
         st.warning("Sem dados")
         st.stop()
 
-    df["data"] = pd.to_datetime(df["data"])
-    df = df[df["data"] >= pd.Timestamp.today() - pd.Timedelta(days=15)]
+    # =========================
+    # SELETOR DE QUINZENA
+    # =========================
+    quinzenas = df[["quinzena_id", "quinzena_label"]].drop_duplicates()
+
+    selecionada = st.selectbox(
+        "Selecione a quinzena",
+        quinzenas["quinzena_id"],
+        format_func=lambda x: quinzenas[quinzenas["quinzena_id"] == x]["quinzena_label"].values[0]
+    )
+
+    df = df[df["quinzena_id"] == selecionada]
 
     if df.empty:
-        st.warning("Sem dados na quinzena")
+        st.warning("Sem dados nessa quinzena")
         st.stop()
 
+    # =========================
+    # MÉTRICAS
+    # =========================
     total = len(df)
     abort = (df["status"] != "produtivo").mean()
 
@@ -183,24 +217,18 @@ elif menu == "Análise":
     total_time = t_equip + t_merg + t_repo
     eficiencia = (t_merg / total_time * 100) if total_time > 0 else 0
 
-    # =========================
-    # RELATÓRIO EXECUTIVO
-    # =========================
     motivos_df = df["motivo_abortado"].dropna()
     principal_motivo = motivos_df.value_counts().idxmax() if not motivos_df.empty else None
 
-    if eficiencia < 50:
-        insight = "Baixa eficiência crítica."
-    elif eficiencia < 70:
-        insight = "Eficiência moderada."
-    else:
-        insight = "Alta eficiência."
+    insight = "Alta eficiência." if eficiencia > 70 else "Eficiência moderada." if eficiencia > 50 else "Baixa eficiência."
 
     if principal_motivo:
         insight += f" Principal causa: {principal_motivo}."
 
     resumo = f"""
 RELATÓRIO EXECUTIVO
+
+Quinzena: {df["quinzena_label"].iloc[0]}
 
 Mergulhos: {total}
 Eficiência: {eficiencia:.1f}%
@@ -212,27 +240,15 @@ Abortos: {abort:.0%}
     pdf = gerar_pdf(resumo)
 
     # =========================
-    # BOTÕES
+    # DOWNLOADS
     # =========================
-    st.subheader("Relatórios")
     c1, c2 = st.columns(2)
 
     with c1:
-        st.download_button(
-            "📄 PDF Executivo",
-            data=pdf,
-            file_name="relatorio.pdf",
-            mime="application/pdf"
-        )
+        st.download_button("📄 PDF", pdf, "relatorio_quinzena.pdf")
 
     with c2:
-        csv = df.to_csv(index=False).encode('utf-8')
-        st.download_button(
-            "📥 CSV",
-            data=csv,
-            file_name="dados.csv",
-            mime="text/csv"
-        )
+        st.download_button("📥 CSV", df.to_csv(index=False).encode(), "dados.csv")
 
     # =========================
     # KPIs
@@ -241,12 +257,6 @@ Abortos: {abort:.0%}
     k1.metric("Mergulhos", total)
     k2.metric("Eficiência", f"{eficiencia:.1f}%")
     k3.metric("Abortos", f"{abort:.0%}")
-
-    if eficiencia < 60:
-        st.error("⚠️ Baixa eficiência")
-
-    if abort > 0.3:
-        st.warning("⚠️ Muitos abortos")
 
     # =========================
     # GRÁFICOS
@@ -260,8 +270,3 @@ Abortos: {abort:.0%}
 
     trend = df.groupby("data")["tempo_mergulho"].sum().reset_index()
     st.plotly_chart(px.line(trend, x="data", y="tempo_mergulho"), use_container_width=True)
-
-    bar = df.groupby("embarcacao")["tempo_mergulho"].sum().reset_index()
-    st.plotly_chart(px.bar(bar, x="embarcacao", y="tempo_mergulho"), use_container_width=True)
-
-    st.info(resumo)
