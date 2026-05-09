@@ -98,7 +98,7 @@ if menu == "Operação":
         ["produtivo", "abortado_mergulhador", "abortado_embarcacao"]
     )
 
-    # 🔥 MOTIVO PADRONIZADO
+    # MOTIVO PADRONIZADO
     motivo = None
 
     if status == "abortado_mergulhador":
@@ -120,11 +120,8 @@ if menu == "Operação":
 
     obs = st.text_area("Observações")
 
-    botao_desabilitado = st.session_state.salvando
+    if st.button("Salvar", disabled=st.session_state.salvando):
 
-    if st.button("Salvar", disabled=botao_desabilitado):
-
-        # 🔥 VALIDAÇÃO
         if "abortado" in status and not motivo:
             st.warning("Selecione o motivo do abortado")
             st.stop()
@@ -186,7 +183,6 @@ elif menu == "Análise":
     k2.metric("Eficiência", f"{eficiencia:.1f}%")
     k3.metric("Abortos", f"{abort:.0%}")
 
-    # ALERTAS
     if eficiencia < 60:
         st.error("⚠️ Baixa eficiência operacional")
 
@@ -197,12 +193,17 @@ elif menu == "Análise":
     st.subheader("Status")
     st.plotly_chart(px.pie(df, names="status", hole=0.5), use_container_width=True)
 
-    # MOTIVOS (🔥 NOVO INSIGHT)
-    if df["motivo_abortado"].notna().sum() > 0:
+    # MOTIVOS CORRIGIDO
+    motivos_df = df["motivo_abortado"].dropna()
+
+    if not motivos_df.empty:
+        motivos_count = motivos_df.value_counts().reset_index()
+        motivos_count.columns = ["motivo", "quantidade"]
+
         st.subheader("Motivos de Abortos")
+
         st.plotly_chart(
-            px.bar(df["motivo_abortado"].value_counts().reset_index(),
-                   x="index", y="motivo_abortado"),
+            px.bar(motivos_count, x="motivo", y="quantidade"),
             use_container_width=True
         )
 
@@ -216,49 +217,71 @@ elif menu == "Análise":
     st.plotly_chart(px.bar(bar, x="embarcacao", y="tempo_mergulho"),
                     use_container_width=True)
 
-    # =========================
-    # 🧠 RELATÓRIO EXECUTIVO INTELIGENTE
-    # =========================
+    # RELATÓRIO EXECUTIVO
     st.subheader("Resumo Executivo")
 
     principal_motivo = None
-    if df["motivo_abortado"].notna().any():
-        principal_motivo = df["motivo_abortado"].value_counts().idxmax()
+    if not motivos_df.empty:
+        principal_motivo = motivos_df.value_counts().idxmax()
 
-    insight = ""
-    if eficiencia < 60:
-        insight = "A eficiência operacional encontra-se abaixo do ideal, indicando necessidade de revisão de processos."
-    elif eficiencia < 80:
-        insight = "A operação apresenta eficiência moderada, com oportunidades de otimização."
+    if eficiencia < 50:
+        insight = "A operação apresenta baixa eficiência crítica."
+    elif eficiencia < 70:
+        insight = "A operação apresenta eficiência moderada."
     else:
-        insight = "A operação apresenta alta eficiência, dentro dos padrões esperados."
+        insight = "A operação apresenta alta eficiência."
 
     if principal_motivo:
-        insight += f" O principal fator de abortos foi '{principal_motivo}'."
+        insight += f" Principal causa de abortos: {principal_motivo}."
 
     resumo = f"""
-    Foram realizados {total} mergulhos na quinzena.
+RELATÓRIO EXECUTIVO
 
-    Eficiência operacional: {eficiencia:.1f}%  
-    Taxa de abortos: {abort:.0%}
+Total de mergulhos: {total}
+Eficiência: {eficiencia:.1f}%
+Taxa de abortos: {abort:.0%}
 
-    {insight}
-    """
+{insight}
+"""
 
     st.info(resumo)
 
-    # =========================
-    # DOWNLOAD SEGURO
-    # =========================
+    # PDF
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+    from reportlab.lib.styles import getSampleStyleSheet
+
+    def gerar_pdf(texto):
+        path = "/mnt/data/relatorio.pdf"
+        doc = SimpleDocTemplate(path)
+        styles = getSampleStyleSheet()
+        story = []
+
+        for linha in texto.split("\n"):
+            story.append(Paragraph(linha, styles["Normal"]))
+            story.append(Spacer(1, 10))
+
+        doc.build(story)
+
+        with open(path, "rb") as f:
+            return f.read()
+
+    pdf = gerar_pdf(resumo)
+
+    st.download_button(
+        "📄 Baixar Relatório Executivo (PDF)",
+        pdf,
+        "relatorio.pdf"
+    )
+
+    # CSV
     try:
         csv = df.to_csv(index=False).encode('utf-8')
 
         st.download_button(
-            "📥 Baixar relatório",
+            "📥 Baixar Dados (CSV)",
             data=csv,
-            file_name="relatorio_quinzena.csv",
+            file_name="dados.csv",
             mime="text/csv"
         )
-
     except:
-        st.error("Erro ao gerar relatório")
+        st.error("Erro ao gerar CSV")
