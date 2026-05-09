@@ -3,20 +3,17 @@ import pandas as pd
 import plotly.express as px
 import sqlite3
 from datetime import date
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+from reportlab.lib.styles import getSampleStyleSheet
 
 st.set_page_config(layout="wide")
 
 # =========================
 # SESSION STATE
 # =========================
-if "salvo" not in st.session_state:
-    st.session_state.salvo = False
-
-if "ultimo_numero" not in st.session_state:
-    st.session_state.ultimo_numero = None
-
-if "salvando" not in st.session_state:
-    st.session_state.salvando = False
+for key in ["salvo", "ultimo_numero", "salvando"]:
+    if key not in st.session_state:
+        st.session_state[key] = False if key != "ultimo_numero" else None
 
 # =========================
 # BANCO
@@ -64,6 +61,21 @@ def save(df_new):
     df_new.to_sql("operacoes", c, if_exists="append", index=False)
     c.close()
 
+def gerar_pdf(texto):
+    path = "/mnt/data/relatorio.pdf"
+    doc = SimpleDocTemplate(path)
+    styles = getSampleStyleSheet()
+    story = []
+
+    for linha in texto.split("\n"):
+        story.append(Paragraph(linha, styles["Normal"]))
+        story.append(Spacer(1, 10))
+
+    doc.build(story)
+
+    with open(path, "rb") as f:
+        return f.read()
+
 # INIT
 init_db()
 df = load()
@@ -83,7 +95,6 @@ if menu == "Operação":
 
     if st.session_state.salvo:
         st.success(f"✅ Mergulho #{st.session_state.ultimo_numero} salvo com sucesso!")
-        st.audio("https://www.soundjay.com/buttons/sounds/button-3.mp3")
         st.session_state.salvo = False
 
     d = st.date_input("Data", value=date.today())
@@ -98,51 +109,40 @@ if menu == "Operação":
         ["produtivo", "abortado_mergulhador", "abortado_embarcacao"]
     )
 
-    # MOTIVO PADRONIZADO
     motivo = None
-
     if status == "abortado_mergulhador":
-        motivo = st.selectbox(
-            "Motivo (Mergulhador)",
-            ["correnteza", "swell"]
-        )
-
+        motivo = st.selectbox("Motivo (Mergulhador)", ["correnteza", "swell"])
     elif status == "abortado_embarcacao":
-        motivo = st.selectbox(
-            "Motivo (Embarcação)",
-            ["swell", "posicao_degradante"]
-        )
+        motivo = st.selectbox("Motivo (Embarcação)", ["swell", "posicao_degradante"])
 
     c1, c2, c3 = st.columns(3)
-    equip = c1.number_input("Equipagem (min)", 0)
-    merg = c2.number_input("Mergulho (min)", 0)
-    repo = c3.number_input("Reposicionamento (min)", 0)
+    equip = c1.number_input("Equipagem", 0)
+    merg = c2.number_input("Mergulho", 0)
+    repo = c3.number_input("Reposicionamento", 0)
 
     obs = st.text_area("Observações")
 
     if st.button("Salvar", disabled=st.session_state.salvando):
 
         if "abortado" in status and not motivo:
-            st.warning("Selecione o motivo do abortado")
+            st.warning("Selecione o motivo")
             st.stop()
 
         st.session_state.salvando = True
 
-        with st.spinner("Salvando mergulho..."):
+        new = pd.DataFrame([{
+            "data": str(d),
+            "embarcacao": embarcacao,
+            "numero_mergulho": numero,
+            "tempo_equipagem": equip,
+            "tempo_mergulho": merg,
+            "tempo_reposicionamento": repo,
+            "status": status,
+            "motivo_abortado": motivo,
+            "observacoes": obs
+        }])
 
-            new = pd.DataFrame([{
-                "data": str(d),
-                "embarcacao": embarcacao,
-                "numero_mergulho": numero,
-                "tempo_equipagem": equip,
-                "tempo_mergulho": merg,
-                "tempo_reposicionamento": repo,
-                "status": status,
-                "motivo_abortado": motivo,
-                "observacoes": obs
-            }])
-
-            save(new)
+        save(new)
 
         st.session_state.salvo = True
         st.session_state.ultimo_numero = numero
@@ -178,110 +178,75 @@ elif menu == "Análise":
     total_time = t_equip + t_merg + t_repo
     eficiencia = (t_merg / total_time * 100) if total_time > 0 else 0
 
+    # =========================
+    # RELATÓRIO (GERADO ANTES)
+    # =========================
+    motivos_df = df["motivo_abortado"].dropna()
+    principal_motivo = motivos_df.value_counts().idxmax() if not motivos_df.empty else None
+
+    if eficiencia < 50:
+        insight = "Baixa eficiência crítica."
+    elif eficiencia < 70:
+        insight = "Eficiência moderada."
+    else:
+        insight = "Alta eficiência."
+
+    if principal_motivo:
+        insight += f" Principal causa: {principal_motivo}."
+
+    resumo = f"""
+RELATÓRIO EXECUTIVO
+
+Mergulhos: {total}
+Eficiência: {eficiencia:.1f}%
+Abortos: {abort:.0%}
+
+{insight}
+"""
+
+    pdf = gerar_pdf(resumo)
+
+    # =========================
+    # BOTÕES (SEMPRE VISÍVEIS)
+    # =========================
+    st.subheader("Relatórios")
+    c1, c2 = st.columns(2)
+
+    with c1:
+        st.download_button("📄 PDF Executivo", pdf, "relatorio.pdf")
+
+    with c2:
+        csv = df.to_csv(index=False).encode('utf-8')
+        st.download_button("📥 CSV", csv, "dados.csv")
+
+    # =========================
+    # KPIs
+    # =========================
     k1, k2, k3 = st.columns(3)
     k1.metric("Mergulhos", total)
     k2.metric("Eficiência", f"{eficiencia:.1f}%")
     k3.metric("Abortos", f"{abort:.0%}")
 
     if eficiencia < 60:
-        st.error("⚠️ Baixa eficiência operacional")
+        st.error("⚠️ Baixa eficiência")
 
     if abort > 0.3:
-        st.warning("⚠️ Alta taxa de abortos")
+        st.warning("⚠️ Muitos abortos")
 
-    # PIZZA
-    st.subheader("Status")
+    # =========================
+    # GRÁFICOS
+    # =========================
     st.plotly_chart(px.pie(df, names="status", hole=0.5), use_container_width=True)
 
-    # MOTIVOS CORRIGIDO
-    motivos_df = df["motivo_abortado"].dropna()
-
     if not motivos_df.empty:
-        motivos_count = motivos_df.value_counts().reset_index()
-        motivos_count.columns = ["motivo", "quantidade"]
+        mc = motivos_df.value_counts().reset_index()
+        mc.columns = ["motivo", "qtd"]
+        st.plotly_chart(px.bar(mc, x="motivo", y="qtd"), use_container_width=True)
 
-        st.subheader("Motivos de Abortos")
-
-        st.plotly_chart(
-            px.bar(motivos_count, x="motivo", y="quantidade"),
-            use_container_width=True
-        )
-
-    # TENDÊNCIA
     trend = df.groupby("data")["tempo_mergulho"].sum().reset_index()
-    st.plotly_chart(px.line(trend, x="data", y="tempo_mergulho"),
-                    use_container_width=True)
+    st.plotly_chart(px.line(trend, x="data", y="tempo_mergulho"), use_container_width=True)
 
-    # EMBARCAÇÃO
     bar = df.groupby("embarcacao")["tempo_mergulho"].sum().reset_index()
-    st.plotly_chart(px.bar(bar, x="embarcacao", y="tempo_mergulho"),
-                    use_container_width=True)
-
-    # RELATÓRIO EXECUTIVO
-    st.subheader("Resumo Executivo")
-
-    principal_motivo = None
-    if not motivos_df.empty:
-        principal_motivo = motivos_df.value_counts().idxmax()
-
-    if eficiencia < 50:
-        insight = "A operação apresenta baixa eficiência crítica."
-    elif eficiencia < 70:
-        insight = "A operação apresenta eficiência moderada."
-    else:
-        insight = "A operação apresenta alta eficiência."
-
-    if principal_motivo:
-        insight += f" Principal causa de abortos: {principal_motivo}."
-
-    resumo = f"""
-RELATÓRIO EXECUTIVO
-
-Total de mergulhos: {total}
-Eficiência: {eficiencia:.1f}%
-Taxa de abortos: {abort:.0%}
-
-{insight}
-"""
+    st.plotly_chart(px.bar(bar, x="embarcacao", y="tempo_mergulho"), use_container_width=True)
 
     st.info(resumo)
-
-    # PDF
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
-    from reportlab.lib.styles import getSampleStyleSheet
-
-    def gerar_pdf(texto):
-        path = "/mnt/data/relatorio.pdf"
-        doc = SimpleDocTemplate(path)
-        styles = getSampleStyleSheet()
-        story = []
-
-        for linha in texto.split("\n"):
-            story.append(Paragraph(linha, styles["Normal"]))
-            story.append(Spacer(1, 10))
-
-        doc.build(story)
-
-        with open(path, "rb") as f:
-            return f.read()
-
-    pdf = gerar_pdf(resumo)
-
-    st.download_button(
-        "📄 Baixar Relatório Executivo (PDF)",
-        pdf,
-        "relatorio.pdf"
-    )
-
-    # CSV
-    try:
-        csv = df.to_csv(index=False).encode('utf-8')
-
-        st.download_button(
-            "📥 Baixar Dados (CSV)",
-            data=csv,
-            file_name="dados.csv",
-            mime="text/csv"
-        )
-    except:
-        st.error("Erro ao gerar CSV")
