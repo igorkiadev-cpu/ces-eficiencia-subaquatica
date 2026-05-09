@@ -6,19 +6,14 @@ from datetime import date
 
 st.set_page_config(layout="wide")
 
-# =========================
-# 🗄️ BANCO
-# =========================
 DB_PATH = "ces.db"
 
-def get_connection():
+def conn():
     return sqlite3.connect(DB_PATH, check_same_thread=False)
 
-def inicializar_banco():
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("""
+def init_db():
+    c = conn()
+    c.execute("""
     CREATE TABLE IF NOT EXISTS operacoes (
         data TEXT,
         embarcacao TEXT,
@@ -31,77 +26,48 @@ def inicializar_banco():
         observacoes TEXT
     )
     """)
+    c.close()
 
-    conn.commit()
-    conn.close()
-
-def carregar_dados():
-    conn = get_connection()
+def load():
+    c = conn()
     try:
-        df = pd.read_sql("SELECT * FROM operacoes", conn)
+        df = pd.read_sql("SELECT * FROM operacoes", c)
     except:
         df = pd.DataFrame()
-    conn.close()
+    c.close()
     return df
 
-def gerar_numero_mergulho(df, data):
+def next_dive(df, d):
     if df.empty:
         return 1
-
     df["data"] = pd.to_datetime(df["data"])
-    hoje_df = df[df["data"] == pd.to_datetime(data)]
+    hoje = df[df["data"] == pd.to_datetime(d)]
+    return 1 if hoje.empty else hoje["numero_mergulho"].max() + 1
 
-    if hoje_df.empty:
-        return 1
-    else:
-        return hoje_df["numero_mergulho"].max() + 1
-
-def salvar_dados(novo):
-    conn = get_connection()
-
-    existente = pd.read_sql(
-        "SELECT * FROM operacoes WHERE data=? AND numero_mergulho=?",
-        conn,
-        params=(novo["data"][0], int(novo["numero_mergulho"][0]))
-    )
-
-    if not existente.empty:
-        conn.close()
-        return False
-
-    novo.to_sql("operacoes", conn, if_exists="append", index=False)
-    conn.close()
-    return True
+def save(df_new):
+    c = conn()
+    df_new.to_sql("operacoes", c, if_exists="append", index=False)
+    c.close()
 
 # INIT
-inicializar_banco()
-df = carregar_dados()
+init_db()
+df = load()
 
-# =========================
-# HEADER
-# =========================
+# UI
 st.title("CES - Controle de Eficiência Subaquática")
-st.caption("Operational Efficiency System")
+menu = st.sidebar.radio("Menu", ["Operação", "Análise"])
 
-menu = st.sidebar.radio("Menu", ["Operação", "Análise da Quinzena"])
-
-# =========================
-# 📥 OPERAÇÃO
-# =========================
+# ================= OPERAÇÃO =================
 if menu == "Operação":
 
-    st.header("Registro de Mergulho")
+    st.header("Registro Rápido")
 
-    data_input = st.date_input("Data", value=date.today())
+    d = st.date_input("Data", value=date.today())
+    numero = next_dive(df, d)
 
-    numero_auto = gerar_numero_mergulho(df, data_input)
+    st.success(f"Mergulho #{numero}")
 
-    st.info(f"Número do mergulho: {numero_auto}")
-
-    embarcacao = st.selectbox(
-        "Embarcação",
-        ["Amaralina", "Humaitá", "Cidade de Ouro Preto"]
-    )
+    embarcacao = st.selectbox("Embarcação", ["Amaralina", "Humaitá", "Ouro Preto"])
 
     status = st.radio(
         "Status",
@@ -109,86 +75,92 @@ if menu == "Operação":
     )
 
     motivo = None
+    if "abortado" in status:
+        motivo = st.text_input("Motivo")
 
-    if status == "abortado_mergulhador":
-        motivo = st.selectbox("Motivo", ["Correnteza", "Swell"])
-
-    elif status == "abortado_embarcacao":
-        motivo = st.selectbox("Motivo", ["Swell Alto", "Posição", "Vento"])
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        tempo_equip = st.number_input("Equipagem (min)", min_value=0)
-
-    with col2:
-        tempo_merg = st.number_input("Mergulho (min)", min_value=0)
-
-    with col3:
-        tempo_repo = st.number_input("Reposicionamento (min)", min_value=0)
+    c1, c2, c3 = st.columns(3)
+    equip = c1.number_input("Equipagem", 0)
+    merg = c2.number_input("Mergulho", 0)
+    repo = c3.number_input("Reposicionamento", 0)
 
     obs = st.text_area("Observações")
 
     if st.button("Salvar"):
-
-        novo = pd.DataFrame([{
-            "data": str(data_input),
+        new = pd.DataFrame([{
+            "data": str(d),
             "embarcacao": embarcacao,
-            "numero_mergulho": numero_auto,
-            "tempo_equipagem": tempo_equip,
-            "tempo_mergulho": tempo_merg,
-            "tempo_reposicionamento": tempo_repo,
+            "numero_mergulho": numero,
+            "tempo_equipagem": equip,
+            "tempo_mergulho": merg,
+            "tempo_reposicionamento": repo,
             "status": status,
             "motivo_abortado": motivo,
             "observacoes": obs
         }])
+        save(new)
+        st.success("Salvo!")
+        st.rerun()
 
-        if salvar_dados(novo):
-            st.success("Salvo com sucesso!")
-            st.rerun()
-        else:
-            st.error("Erro: mergulho duplicado!")
+# ================= ANÁLISE =================
+elif menu == "Análise":
 
-# =========================
-# 📊 ANÁLISE
-# =========================
-elif menu == "Análise da Quinzena":
-
-    st.header("Dashboard Executivo")
+    st.header("Dashboard da Quinzena")
 
     if df.empty:
         st.warning("Sem dados")
-    else:
-        df["data"] = pd.to_datetime(df["data"])
+        st.stop()
 
-        df_q = df[
-            df["data"] >= (pd.Timestamp.today() - pd.Timedelta(days=15))
-        ].copy()
+    df["data"] = pd.to_datetime(df["data"])
+    df = df[df["data"] >= pd.Timestamp.today() - pd.Timedelta(days=15)]
 
-        total_mergulhos = len(df_q)
+    total = len(df)
+    abort = (df["status"] != "produtivo").mean()
 
-        total_equip = df_q["tempo_equipagem"].sum()
-        total_merg = df_q["tempo_mergulho"].sum()
-        total_repo = df_q["tempo_reposicionamento"].sum()
+    t_equip = df["tempo_equipagem"].sum()
+    t_merg = df["tempo_mergulho"].sum()
+    t_repo = df["tempo_reposicionamento"].sum()
 
-        total = total_equip + total_merg + total_repo
-        eficiencia = (total_merg / total * 100) if total > 0 else 0
+    total_time = t_equip + t_merg + t_repo
+    eficiencia = (t_merg / total_time * 100) if total_time > 0 else 0
 
-        k1, k2, k3 = st.columns(3)
-        k1.metric("Mergulhos", total_mergulhos)
-        k2.metric("Eficiência", f"{eficiencia:.1f}%")
-        k3.metric("Tempo Produtivo", f"{total_merg:.0f} min")
+    k1, k2, k3 = st.columns(3)
+    k1.metric("Mergulhos", total)
+    k2.metric("Eficiência", f"{eficiencia:.1f}%")
+    k3.metric("Abortos", f"{abort:.0%}")
 
-        # 🍕 Pizza
-        fig = px.pie(df_q, names="status", hole=0.6)
-        st.plotly_chart(fig, use_container_width=True)
+    # ALERTAS
+    if eficiencia < 60:
+        st.error("⚠️ Baixa eficiência operacional")
 
-        # 📈 tendência
-        trend = df_q.groupby("data")["tempo_mergulho"].sum().reset_index()
-        st.plotly_chart(px.line(trend, x="data", y="tempo_mergulho"),
-                        use_container_width=True)
+    if abort > 0.3:
+        st.warning("⚠️ Alta taxa de abortos")
 
-        # 🏆 produção
-        bar = df_q.groupby("embarcacao")["tempo_mergulho"].sum().reset_index()
-        st.plotly_chart(px.bar(bar, x="embarcacao", y="tempo_mergulho"),
-                        use_container_width=True)
+    # PIZZA
+    st.subheader("Status")
+    st.plotly_chart(px.pie(df, names="status", hole=0.5), use_container_width=True)
+
+    # TENDÊNCIA
+    trend = df.groupby("data")["tempo_mergulho"].sum().reset_index()
+    st.plotly_chart(px.line(trend, x="data", y="tempo_mergulho"), use_container_width=True)
+
+    # EMBARCAÇÃO
+    bar = df.groupby("embarcacao")["tempo_mergulho"].sum().reset_index()
+    st.plotly_chart(px.bar(bar, x="embarcacao", y="tempo_mergulho"), use_container_width=True)
+
+    # RESUMO EXECUTIVO
+    st.subheader("Resumo Executivo")
+
+    resumo = f"""
+    Na quinzena foram realizados {total} mergulhos.
+    A eficiência operacional foi de {eficiencia:.1f}%.
+    A taxa de abortos foi de {abort:.0%}.
+    """
+
+    st.info(resumo)
+
+    # DOWNLOAD
+    st.download_button(
+        "📥 Baixar relatório",
+        data=df.to_csv(index=False),
+        file_name="relatorio_quinzena.csv"
+    )
