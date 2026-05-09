@@ -3,6 +3,7 @@ import pandas as pd
 import plotly.express as px
 import sqlite3
 from datetime import date
+import io
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
 
@@ -61,9 +62,13 @@ def save(df_new):
     df_new.to_sql("operacoes", c, if_exists="append", index=False)
     c.close()
 
+# =========================
+# PDF EM MEMÓRIA (FIX CLOUD)
+# =========================
 def gerar_pdf(texto):
-    path = "/mnt/data/relatorio.pdf"
-    doc = SimpleDocTemplate(path)
+    buffer = io.BytesIO()
+
+    doc = SimpleDocTemplate(buffer)
     styles = getSampleStyleSheet()
     story = []
 
@@ -73,8 +78,8 @@ def gerar_pdf(texto):
 
     doc.build(story)
 
-    with open(path, "rb") as f:
-        return f.read()
+    buffer.seek(0)
+    return buffer
 
 # INIT
 init_db()
@@ -179,7 +184,7 @@ elif menu == "Análise":
     eficiencia = (t_merg / total_time * 100) if total_time > 0 else 0
 
     # =========================
-    # RELATÓRIO (GERADO ANTES)
+    # RELATÓRIO EXECUTIVO
     # =========================
     motivos_df = df["motivo_abortado"].dropna()
     principal_motivo = motivos_df.value_counts().idxmax() if not motivos_df.empty else None
@@ -207,17 +212,27 @@ Abortos: {abort:.0%}
     pdf = gerar_pdf(resumo)
 
     # =========================
-    # BOTÕES (SEMPRE VISÍVEIS)
+    # BOTÕES
     # =========================
     st.subheader("Relatórios")
     c1, c2 = st.columns(2)
 
     with c1:
-        st.download_button("📄 PDF Executivo", pdf, "relatorio.pdf")
+        st.download_button(
+            "📄 PDF Executivo",
+            data=pdf,
+            file_name="relatorio.pdf",
+            mime="application/pdf"
+        )
 
     with c2:
         csv = df.to_csv(index=False).encode('utf-8')
-        st.download_button("📥 CSV", csv, "dados.csv")
+        st.download_button(
+            "📥 CSV",
+            data=csv,
+            file_name="dados.csv",
+            mime="text/csv"
+        )
 
     # =========================
     # KPIs
