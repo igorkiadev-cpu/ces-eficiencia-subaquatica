@@ -81,7 +81,6 @@ if menu == "Operação":
 
     st.header("Registro Rápido")
 
-    # 🔥 Mensagem persistente + som
     if st.session_state.salvo:
         st.success(f"✅ Mergulho #{st.session_state.ultimo_numero} salvo com sucesso!")
         st.audio("https://www.soundjay.com/buttons/sounds/button-3.mp3")
@@ -90,7 +89,6 @@ if menu == "Operação":
     d = st.date_input("Data", value=date.today())
     numero = next_dive(df, d)
 
-    # 🔥 Visual melhorado
     st.markdown(f"### 🔵 Próximo mergulho: **#{numero}**")
 
     embarcacao = st.selectbox("Embarcação", ["Amaralina", "Humaitá", "Ouro Preto"])
@@ -100,9 +98,20 @@ if menu == "Operação":
         ["produtivo", "abortado_mergulhador", "abortado_embarcacao"]
     )
 
+    # 🔥 MOTIVO PADRONIZADO
     motivo = None
-    if "abortado" in status:
-        motivo = st.text_input("Motivo")
+
+    if status == "abortado_mergulhador":
+        motivo = st.selectbox(
+            "Motivo (Mergulhador)",
+            ["correnteza", "swell"]
+        )
+
+    elif status == "abortado_embarcacao":
+        motivo = st.selectbox(
+            "Motivo (Embarcação)",
+            ["swell", "posicao_degradante"]
+        )
 
     c1, c2, c3 = st.columns(3)
     equip = c1.number_input("Equipagem (min)", 0)
@@ -111,10 +120,14 @@ if menu == "Operação":
 
     obs = st.text_area("Observações")
 
-    # 🔥 Anti duplo clique
     botao_desabilitado = st.session_state.salvando
 
     if st.button("Salvar", disabled=botao_desabilitado):
+
+        # 🔥 VALIDAÇÃO
+        if "abortado" in status and not motivo:
+            st.warning("Selecione o motivo do abortado")
+            st.stop()
 
         st.session_state.salvando = True
 
@@ -134,7 +147,6 @@ if menu == "Operação":
 
             save(new)
 
-        # controle de feedback
         st.session_state.salvo = True
         st.session_state.ultimo_numero = numero
         st.session_state.salvando = False
@@ -154,6 +166,10 @@ elif menu == "Análise":
 
     df["data"] = pd.to_datetime(df["data"])
     df = df[df["data"] >= pd.Timestamp.today() - pd.Timedelta(days=15)]
+
+    if df.empty:
+        st.warning("Sem dados na quinzena")
+        st.stop()
 
     total = len(df)
     abort = (df["status"] != "produtivo").mean()
@@ -181,28 +197,68 @@ elif menu == "Análise":
     st.subheader("Status")
     st.plotly_chart(px.pie(df, names="status", hole=0.5), use_container_width=True)
 
+    # MOTIVOS (🔥 NOVO INSIGHT)
+    if df["motivo_abortado"].notna().sum() > 0:
+        st.subheader("Motivos de Abortos")
+        st.plotly_chart(
+            px.bar(df["motivo_abortado"].value_counts().reset_index(),
+                   x="index", y="motivo_abortado"),
+            use_container_width=True
+        )
+
     # TENDÊNCIA
     trend = df.groupby("data")["tempo_mergulho"].sum().reset_index()
-    st.plotly_chart(px.line(trend, x="data", y="tempo_mergulho"), use_container_width=True)
+    st.plotly_chart(px.line(trend, x="data", y="tempo_mergulho"),
+                    use_container_width=True)
 
     # EMBARCAÇÃO
     bar = df.groupby("embarcacao")["tempo_mergulho"].sum().reset_index()
-    st.plotly_chart(px.bar(bar, x="embarcacao", y="tempo_mergulho"), use_container_width=True)
+    st.plotly_chart(px.bar(bar, x="embarcacao", y="tempo_mergulho"),
+                    use_container_width=True)
 
-    # RESUMO EXECUTIVO
+    # =========================
+    # 🧠 RELATÓRIO EXECUTIVO INTELIGENTE
+    # =========================
     st.subheader("Resumo Executivo")
 
+    principal_motivo = None
+    if df["motivo_abortado"].notna().any():
+        principal_motivo = df["motivo_abortado"].value_counts().idxmax()
+
+    insight = ""
+    if eficiencia < 60:
+        insight = "A eficiência operacional encontra-se abaixo do ideal, indicando necessidade de revisão de processos."
+    elif eficiencia < 80:
+        insight = "A operação apresenta eficiência moderada, com oportunidades de otimização."
+    else:
+        insight = "A operação apresenta alta eficiência, dentro dos padrões esperados."
+
+    if principal_motivo:
+        insight += f" O principal fator de abortos foi '{principal_motivo}'."
+
     resumo = f"""
-    Na quinzena foram realizados {total} mergulhos.
-    A eficiência operacional foi de {eficiencia:.1f}%.
-    A taxa de abortos foi de {abort:.0%}.
+    Foram realizados {total} mergulhos na quinzena.
+
+    Eficiência operacional: {eficiencia:.1f}%  
+    Taxa de abortos: {abort:.0%}
+
+    {insight}
     """
 
     st.info(resumo)
 
-    # DOWNLOAD
-    st.download_button(
-        "📥 Baixar relatório",
-        data=df.to_csv(index=False),
-        file_name="relatorio_quinzena.csv"
-    )
+    # =========================
+    # DOWNLOAD SEGURO
+    # =========================
+    try:
+        csv = df.to_csv(index=False).encode('utf-8')
+
+        st.download_button(
+            "📥 Baixar relatório",
+            data=csv,
+            file_name="relatorio_quinzena.csv",
+            mime="text/csv"
+        )
+
+    except:
+        st.error("Erro ao gerar relatório")
