@@ -4,7 +4,8 @@ import plotly.express as px
 import sqlite3
 from datetime import date
 import io
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image
 from reportlab.lib.styles import getSampleStyleSheet
 
 st.set_page_config(layout="wide")
@@ -67,17 +68,33 @@ def save(df_new):
     c.close()
 
 # =========================
-# PDF
+# PDF COMPLETO COM GRÁFICOS
 # =========================
-def gerar_pdf(texto):
+def gerar_pdf_completo(resumo, figs, titulo):
+
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer)
     styles = getSampleStyleSheet()
     story = []
 
-    for linha in texto.split("\n"):
+    # TÍTULO
+    story.append(Paragraph(f"<b>{titulo}</b>", styles["Title"]))
+    story.append(Spacer(1, 20))
+
+    # TEXTO
+    for linha in resumo.split("\n"):
         story.append(Paragraph(linha, styles["Normal"]))
         story.append(Spacer(1, 10))
+
+    story.append(Spacer(1, 20))
+
+    # GRÁFICOS
+    for fig in figs:
+        img_bytes = fig.to_image(format="png")
+        img_buffer = io.BytesIO(img_bytes)
+
+        story.append(Image(img_buffer, width=400, height=250))
+        story.append(Spacer(1, 20))
 
     doc.build(story)
     buffer.seek(0)
@@ -100,25 +117,19 @@ if menu == "Operação":
 
     st.header("Registro Rápido")
 
-    # =========================
-    # QUINZENA
-    # =========================
     st.subheader("📅 Quinzena")
 
     c1, c2 = st.columns(2)
     with c1:
-        data_inicio_q = st.date_input("Início da quinzena", value=date.today())
+        data_inicio_q = st.date_input("Início", value=date.today())
     with c2:
-        data_fim_q = st.date_input("Fim da quinzena", value=date.today())
+        data_fim_q = st.date_input("Fim", value=date.today())
 
     quinzena_id = f"{data_inicio_q.strftime('%Y%m%d')}_{data_fim_q.strftime('%Y%m%d')}"
     quinzena_label = f"{data_inicio_q.strftime('%d/%m')} a {data_fim_q.strftime('%d/%m')}"
 
     st.info(f"Quinzena ativa: {quinzena_label}")
 
-    # =========================
-    # RESTO
-    # =========================
     if st.session_state.salvo:
         st.success(f"✅ Mergulho #{st.session_state.ultimo_numero} salvo!")
         st.session_state.salvo = False
@@ -130,16 +141,13 @@ if menu == "Operação":
 
     embarcacao = st.selectbox("Embarcação", ["Amaralina", "Humaitá", "Ouro Preto"])
 
-    status = st.radio(
-        "Status",
-        ["produtivo", "abortado_mergulhador", "abortado_embarcacao"]
-    )
+    status = st.radio("Status", ["produtivo", "abortado_mergulhador", "abortado_embarcacao"])
 
     motivo = None
     if status == "abortado_mergulhador":
-        motivo = st.selectbox("Motivo (Mergulhador)", ["correnteza", "swell"])
+        motivo = st.selectbox("Motivo", ["correnteza", "swell"])
     elif status == "abortado_embarcacao":
-        motivo = st.selectbox("Motivo (Embarcação)", ["swell", "posicao_degradante"])
+        motivo = st.selectbox("Motivo", ["swell", "posicao_degradante"])
 
     c1, c2, c3 = st.columns(3)
     equip = c1.number_input("Equipagem", 0)
@@ -187,9 +195,6 @@ elif menu == "Análise":
         st.warning("Sem dados")
         st.stop()
 
-    # =========================
-    # SELETOR DE QUINZENA
-    # =========================
     quinzenas = df[["quinzena_id", "quinzena_label"]].drop_duplicates()
 
     selecionada = st.selectbox(
@@ -204,9 +209,6 @@ elif menu == "Análise":
         st.warning("Sem dados nessa quinzena")
         st.stop()
 
-    # =========================
-    # MÉTRICAS
-    # =========================
     total = len(df)
     abort = (df["status"] != "produtivo").mean()
 
@@ -226,8 +228,6 @@ elif menu == "Análise":
         insight += f" Principal causa: {principal_motivo}."
 
     resumo = f"""
-RELATÓRIO EXECUTIVO
-
 Quinzena: {df["quinzena_label"].iloc[0]}
 
 Mergulhos: {total}
@@ -237,36 +237,45 @@ Abortos: {abort:.0%}
 {insight}
 """
 
-    pdf = gerar_pdf(resumo)
+    # =========================
+    # GRÁFICOS
+    # =========================
+    fig1 = px.pie(df, names="status", hole=0.5)
+
+    figs = [fig1]
+
+    if not motivos_df.empty:
+        mc = motivos_df.value_counts().reset_index()
+        mc.columns = ["motivo", "qtd"]
+        fig2 = px.bar(mc, x="motivo", y="qtd")
+        figs.append(fig2)
+
+    trend = df.groupby("data")["tempo_mergulho"].sum().reset_index()
+    fig3 = px.line(trend, x="data", y="tempo_mergulho")
+    figs.append(fig3)
+
+    pdf = gerar_pdf_completo(
+        resumo,
+        figs,
+        f"Relatório Operacional - Quinzena {df['quinzena_label'].iloc[0]}"
+    )
 
     # =========================
-    # DOWNLOADS
+    # DOWNLOAD
     # =========================
-    c1, c2 = st.columns(2)
-
-    with c1:
-        st.download_button("📄 PDF", pdf, "relatorio_quinzena.pdf")
-
-    with c2:
-        st.download_button("📥 CSV", df.to_csv(index=False).encode(), "dados.csv")
+    st.download_button("📄 Baixar Relatório Completo", pdf, "relatorio_quinzena.pdf")
 
     # =========================
-    # KPIs
+    # DASHBOARD
     # =========================
     k1, k2, k3 = st.columns(3)
     k1.metric("Mergulhos", total)
     k2.metric("Eficiência", f"{eficiencia:.1f}%")
     k3.metric("Abortos", f"{abort:.0%}")
 
-    # =========================
-    # GRÁFICOS
-    # =========================
-    st.plotly_chart(px.pie(df, names="status", hole=0.5), use_container_width=True)
+    st.plotly_chart(fig1, use_container_width=True)
 
     if not motivos_df.empty:
-        mc = motivos_df.value_counts().reset_index()
-        mc.columns = ["motivo", "qtd"]
-        st.plotly_chart(px.bar(mc, x="motivo", y="qtd"), use_container_width=True)
+        st.plotly_chart(fig2, use_container_width=True)
 
-    trend = df.groupby("data")["tempo_mergulho"].sum().reset_index()
-    st.plotly_chart(px.line(trend, x="data", y="tempo_mergulho"), use_container_width=True)
+    st.plotly_chart(fig3, use_container_width=True)
