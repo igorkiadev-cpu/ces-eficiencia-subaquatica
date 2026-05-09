@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import sqlite3
+from datetime import date
 
 st.set_page_config(layout="wide")
 
@@ -21,12 +22,11 @@ def inicializar_banco():
     CREATE TABLE IF NOT EXISTS operacoes (
         data TEXT,
         embarcacao TEXT,
-        id_mergulho INTEGER,
+        numero_mergulho INTEGER,
         tempo_equipagem REAL,
         tempo_mergulho REAL,
         tempo_reposicionamento REAL,
-        abortado_mergulhador BOOLEAN,
-        abortado_embarcacao BOOLEAN,
+        status TEXT,
         motivo_abortado TEXT,
         observacoes TEXT
     )
@@ -34,23 +34,6 @@ def inicializar_banco():
 
     conn.commit()
     conn.close()
-
-def salvar_dados(novo):
-    conn = get_connection()
-
-    existente = pd.read_sql(
-        "SELECT * FROM operacoes WHERE data=? AND id_mergulho=?",
-        conn,
-        params=(novo["data"][0], int(novo["id_mergulho"][0]))
-    )
-
-    if not existente.empty:
-        conn.close()
-        return False
-
-    novo.to_sql("operacoes", conn, if_exists="append", index=False)
-    conn.close()
-    return True
 
 def carregar_dados():
     conn = get_connection()
@@ -61,6 +44,36 @@ def carregar_dados():
     conn.close()
     return df
 
+def gerar_numero_mergulho(df, data):
+    if df.empty:
+        return 1
+
+    df["data"] = pd.to_datetime(df["data"])
+    hoje_df = df[df["data"] == pd.to_datetime(data)]
+
+    if hoje_df.empty:
+        return 1
+    else:
+        return hoje_df["numero_mergulho"].max() + 1
+
+def salvar_dados(novo):
+    conn = get_connection()
+
+    existente = pd.read_sql(
+        "SELECT * FROM operacoes WHERE data=? AND numero_mergulho=?",
+        conn,
+        params=(novo["data"][0], int(novo["numero_mergulho"][0]))
+    )
+
+    if not existente.empty:
+        conn.close()
+        return False
+
+    novo.to_sql("operacoes", conn, if_exists="append", index=False)
+    conn.close()
+    return True
+
+# INIT
 inicializar_banco()
 df = carregar_dados()
 
@@ -70,76 +83,76 @@ df = carregar_dados()
 st.title("CES - Controle de Eficiência Subaquática")
 st.caption("Operational Efficiency System")
 
-menu = st.sidebar.selectbox("Menu", ["Registro", "Dashboard Executivo"])
+menu = st.sidebar.radio("Menu", ["Operação", "Análise da Quinzena"])
 
 # =========================
-# 📥 REGISTRO
+# 📥 OPERAÇÃO
 # =========================
-if menu == "Registro":
+if menu == "Operação":
 
     st.header("Registro de Mergulho")
 
-    tipo_operacao = st.selectbox(
-        "Status",
-        ["Produtivo", "Abortado pelo Mergulhador", "Abortado pela Embarcação"]
+    data_input = st.date_input("Data", value=date.today())
+
+    numero_auto = gerar_numero_mergulho(df, data_input)
+
+    st.info(f"Número do mergulho: {numero_auto}")
+
+    embarcacao = st.selectbox(
+        "Embarcação",
+        ["Amaralina", "Humaitá", "Cidade de Ouro Preto"]
     )
 
-    motivo_abortado = None
+    status = st.radio(
+        "Status",
+        ["produtivo", "abortado_mergulhador", "abortado_embarcacao"]
+    )
 
-    if tipo_operacao == "Abortado pelo Mergulhador":
-        motivo_abortado = st.selectbox(
-            "Motivo (Mergulhador)",
-            ["Correnteza", "Swell (Refluxo)"]
-        )
+    motivo = None
 
-    elif tipo_operacao == "Abortado pela Embarcação":
-        motivo_abortado = st.selectbox(
-            "Motivo (Embarcação)",
-            ["Swell Alto", "Posição Conflitante", "Vento"]
-        )
+    if status == "abortado_mergulhador":
+        motivo = st.selectbox("Motivo", ["Correnteza", "Swell"])
 
-    with st.form("form"):
-        col1, col2 = st.columns(2)
+    elif status == "abortado_embarcacao":
+        motivo = st.selectbox("Motivo", ["Swell Alto", "Posição", "Vento"])
 
-        with col1:
-            data = st.date_input("Data")
-            embarcacao = st.selectbox(
-                "Embarcação",
-                ["Amaralina", "Humaitá", "Cidade de Ouro Preto"]
-            )
-            numero = st.selectbox("Número do Mergulho", list(range(0, 21)))
+    col1, col2, col3 = st.columns(3)
 
-        with col2:
-            equip = st.number_input("Equipagem", 0)
-            merg = st.number_input("Mergulho", 0)
-            repo = st.number_input("Reposicionamento", 0)
+    with col1:
+        tempo_equip = st.number_input("Equipagem (min)", min_value=0)
 
-        obs = st.text_area("Observações")
+    with col2:
+        tempo_merg = st.number_input("Mergulho (min)", min_value=0)
 
-        if st.form_submit_button("Salvar"):
+    with col3:
+        tempo_repo = st.number_input("Reposicionamento (min)", min_value=0)
 
-            novo = pd.DataFrame([{
-                "data": str(data),
-                "embarcacao": embarcacao,
-                "id_mergulho": numero,
-                "tempo_equipagem": equip,
-                "tempo_mergulho": merg,
-                "tempo_reposicionamento": repo,
-                "abortado_mergulhador": tipo_operacao == "Abortado pelo Mergulhador",
-                "abortado_embarcacao": tipo_operacao == "Abortado pela Embarcação",
-                "motivo_abortado": motivo_abortado,
-                "observacoes": obs
-            }])
+    obs = st.text_area("Observações")
 
-            if salvar_dados(novo):
-                st.success("Salvo!")
-            else:
-                st.error("Duplicado!")
+    if st.button("Salvar"):
+
+        novo = pd.DataFrame([{
+            "data": str(data_input),
+            "embarcacao": embarcacao,
+            "numero_mergulho": numero_auto,
+            "tempo_equipagem": tempo_equip,
+            "tempo_mergulho": tempo_merg,
+            "tempo_reposicionamento": tempo_repo,
+            "status": status,
+            "motivo_abortado": motivo,
+            "observacoes": obs
+        }])
+
+        if salvar_dados(novo):
+            st.success("Salvo com sucesso!")
+            st.rerun()
+        else:
+            st.error("Erro: mergulho duplicado!")
 
 # =========================
-# 📊 DASHBOARD
+# 📊 ANÁLISE
 # =========================
-if menu == "Dashboard Executivo":
+elif menu == "Análise da Quinzena":
 
     st.header("Dashboard Executivo")
 
@@ -148,92 +161,34 @@ if menu == "Dashboard Executivo":
     else:
         df["data"] = pd.to_datetime(df["data"])
 
-        dias = st.slider("Período (dias)", 7, 30, 15)
+        df_q = df[
+            df["data"] >= (pd.Timestamp.today() - pd.Timedelta(days=15))
+        ].copy()
 
-        # 🔥 filtro correto
-        df_filtrado = df[df["data"] >= (pd.Timestamp.today() - pd.Timedelta(days=dias))].copy()
+        total_mergulhos = len(df_q)
 
-        # 🔥 status
-        df_filtrado["status"] = df_filtrado.apply(
-            lambda r: "Abortado Mergulhador" if r["abortado_mergulhador"]
-            else "Abortado Embarcação" if r["abortado_embarcacao"]
-            else "Produtivo",
-            axis=1
-        )
-
-        # 🔥 CHAVE ÚNICA (FIX DEFINITIVO)
-        df_filtrado["chave"] = (
-            df_filtrado["data"].dt.strftime("%Y-%m-%d") + "_" +
-            df_filtrado["id_mergulho"].astype(str)
-        )
-
-        total_mergulhos = df_filtrado["chave"].nunique()
-
-        # 🔥 tempos
-        total_equip = df_filtrado["tempo_equipagem"].sum()
-        total_merg = df_filtrado["tempo_mergulho"].sum()
-        total_repo = df_filtrado["tempo_reposicionamento"].sum()
+        total_equip = df_q["tempo_equipagem"].sum()
+        total_merg = df_q["tempo_mergulho"].sum()
+        total_repo = df_q["tempo_reposicionamento"].sum()
 
         total = total_equip + total_merg + total_repo
         eficiencia = (total_merg / total * 100) if total > 0 else 0
 
-        # 🔥 PERFORMANCE
-        if eficiencia < 40:
-            perf = "🔴 Ruim"
-        elif eficiencia < 60:
-            perf = "🟡 Regular"
-        elif eficiencia < 80:
-            perf = "🟢 Bom"
-        else:
-            perf = "🔵 Excelente"
-
-        k1, k2, k3, k4 = st.columns(4)
+        k1, k2, k3 = st.columns(3)
         k1.metric("Mergulhos", total_mergulhos)
         k2.metric("Eficiência", f"{eficiencia:.1f}%")
         k3.metric("Tempo Produtivo", f"{total_merg:.0f} min")
-        k4.metric("Performance", perf)
 
-        # 🍕 PIZZA GRANDE (FIX VISUAL)
-        resumo = df_filtrado["status"].value_counts().reset_index()
-        resumo.columns = ["status", "qtd"]
-
-        fig = px.pie(
-            resumo,
-            names="status",
-            values="qtd",
-            hole=0.6
-        )
-
-        fig.update_traces(
-            textposition='inside',
-            textinfo='percent+label'
-        )
-
-        fig.update_layout(
-            height=600,
-            margin=dict(t=40, b=40, l=40, r=40)
-        )
-
+        # 🍕 Pizza
+        fig = px.pie(df_q, names="status", hole=0.6)
         st.plotly_chart(fig, use_container_width=True)
 
         # 📈 tendência
-        trend = df_filtrado.groupby("data")["tempo_mergulho"].sum().reset_index()
+        trend = df_q.groupby("data")["tempo_mergulho"].sum().reset_index()
         st.plotly_chart(px.line(trend, x="data", y="tempo_mergulho"),
                         use_container_width=True)
 
         # 🏆 produção
-        bar = df_filtrado.groupby("embarcacao")["tempo_mergulho"].sum().reset_index()
+        bar = df_q.groupby("embarcacao")["tempo_mergulho"].sum().reset_index()
         st.plotly_chart(px.bar(bar, x="embarcacao", y="tempo_mergulho"),
                         use_container_width=True)
-
-        # 📥 DOWNLOAD
-        st.subheader("Exportação de Dados")
-
-        csv = df_filtrado.to_csv(index=False).encode('utf-8')
-
-        st.download_button(
-            "📥 Baixar Log da Quinzena",
-            data=csv,
-            file_name="ces_quinzena.csv",
-            mime="text/csv"
-        )
