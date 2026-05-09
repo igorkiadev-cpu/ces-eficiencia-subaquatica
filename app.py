@@ -6,6 +6,18 @@ from datetime import date
 
 st.set_page_config(layout="wide")
 
+# =========================
+# SESSION STATE (FIX UX)
+# =========================
+if "salvo" not in st.session_state:
+    st.session_state.salvo = False
+
+if "ultimo_numero" not in st.session_state:
+    st.session_state.ultimo_numero = None
+
+# =========================
+# BANCO
+# =========================
 DB_PATH = "ces.db"
 
 def conn():
@@ -53,19 +65,28 @@ def save(df_new):
 init_db()
 df = load()
 
+# =========================
 # UI
+# =========================
 st.title("CES - Controle de Eficiência Subaquática")
 menu = st.sidebar.radio("Menu", ["Operação", "Análise"])
 
-# ================= OPERAÇÃO =================
+# =========================
+# OPERAÇÃO
+# =========================
 if menu == "Operação":
 
     st.header("Registro Rápido")
 
+    # 🔥 MOSTRA MENSAGEM DE SUCESSO DEPOIS DO RERUN
+    if st.session_state.salvo:
+        st.success(f"✅ Mergulho #{st.session_state.ultimo_numero} salvo com sucesso!")
+        st.session_state.salvo = False
+
     d = st.date_input("Data", value=date.today())
     numero = next_dive(df, d)
 
-    st.success(f"Mergulho #{numero}")
+    st.info(f"Próximo mergulho: #{numero}")
 
     embarcacao = st.selectbox("Embarcação", ["Amaralina", "Humaitá", "Ouro Preto"])
 
@@ -86,6 +107,7 @@ if menu == "Operação":
     obs = st.text_area("Observações")
 
     if st.button("Salvar"):
+
         new = pd.DataFrame([{
             "data": str(d),
             "embarcacao": embarcacao,
@@ -97,11 +119,18 @@ if menu == "Operação":
             "motivo_abortado": motivo,
             "observacoes": obs
         }])
+
         save(new)
-        st.success("Salvo!")
+
+        # 🔥 CONTROLA MENSAGEM
+        st.session_state.salvo = True
+        st.session_state.ultimo_numero = numero
+
         st.rerun()
 
-# ================= ANÁLISE =================
+# =========================
+# ANÁLISE
+# =========================
 elif menu == "Análise":
 
     st.header("Dashboard da Quinzena")
