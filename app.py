@@ -7,13 +7,16 @@ from datetime import date
 st.set_page_config(layout="wide")
 
 # =========================
-# SESSION STATE (FIX UX)
+# SESSION STATE
 # =========================
 if "salvo" not in st.session_state:
     st.session_state.salvo = False
 
 if "ultimo_numero" not in st.session_state:
     st.session_state.ultimo_numero = None
+
+if "salvando" not in st.session_state:
+    st.session_state.salvando = False
 
 # =========================
 # BANCO
@@ -78,15 +81,17 @@ if menu == "Operação":
 
     st.header("Registro Rápido")
 
-    # 🔥 MOSTRA MENSAGEM DE SUCESSO DEPOIS DO RERUN
+    # 🔥 Mensagem persistente + som
     if st.session_state.salvo:
         st.success(f"✅ Mergulho #{st.session_state.ultimo_numero} salvo com sucesso!")
+        st.audio("https://www.soundjay.com/buttons/sounds/button-3.mp3")
         st.session_state.salvo = False
 
     d = st.date_input("Data", value=date.today())
     numero = next_dive(df, d)
 
-    st.info(f"Próximo mergulho: #{numero}")
+    # 🔥 Visual melhorado
+    st.markdown(f"### 🔵 Próximo mergulho: **#{numero}**")
 
     embarcacao = st.selectbox("Embarcação", ["Amaralina", "Humaitá", "Ouro Preto"])
 
@@ -100,31 +105,39 @@ if menu == "Operação":
         motivo = st.text_input("Motivo")
 
     c1, c2, c3 = st.columns(3)
-    equip = c1.number_input("Equipagem", 0)
-    merg = c2.number_input("Mergulho", 0)
-    repo = c3.number_input("Reposicionamento", 0)
+    equip = c1.number_input("Equipagem (min)", 0)
+    merg = c2.number_input("Mergulho (min)", 0)
+    repo = c3.number_input("Reposicionamento (min)", 0)
 
     obs = st.text_area("Observações")
 
-    if st.button("Salvar"):
+    # 🔥 Anti duplo clique
+    botao_desabilitado = st.session_state.salvando
 
-        new = pd.DataFrame([{
-            "data": str(d),
-            "embarcacao": embarcacao,
-            "numero_mergulho": numero,
-            "tempo_equipagem": equip,
-            "tempo_mergulho": merg,
-            "tempo_reposicionamento": repo,
-            "status": status,
-            "motivo_abortado": motivo,
-            "observacoes": obs
-        }])
+    if st.button("Salvar", disabled=botao_desabilitado):
 
-        save(new)
+        st.session_state.salvando = True
 
-        # 🔥 CONTROLA MENSAGEM
+        with st.spinner("Salvando mergulho..."):
+
+            new = pd.DataFrame([{
+                "data": str(d),
+                "embarcacao": embarcacao,
+                "numero_mergulho": numero,
+                "tempo_equipagem": equip,
+                "tempo_mergulho": merg,
+                "tempo_reposicionamento": repo,
+                "status": status,
+                "motivo_abortado": motivo,
+                "observacoes": obs
+            }])
+
+            save(new)
+
+        # controle de feedback
         st.session_state.salvo = True
         st.session_state.ultimo_numero = numero
+        st.session_state.salvando = False
 
         st.rerun()
 
